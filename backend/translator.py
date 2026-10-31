@@ -405,6 +405,7 @@ class Translator:
         self._actual_device = "cpu"
         self._gpu_layers = 0
         self._model_path = MODEL_PATH
+        self.model_required = False
 
     @property
     def status(self) -> str:
@@ -448,6 +449,12 @@ class Translator:
                 self._model_path, _ = resolve_model_path()
                 # 本地缺少模型时，自动从 HuggingFace 官网下载
                 if not os.path.exists(self._model_path):
+                    cfg_file = settings_path()
+                    cfg = json.loads(cfg_file.read_text(encoding="utf-8")) if cfg_file.is_file() else {}
+                    if cfg.get("download_default_model") is not True:
+                        self.model_required = True
+                        update_status("请选择已有模型，或下载默认 Hy-MT2 模型（约 1.13GB）")
+                        return
                     if _OFFLINE_MODE:
                         raise FileNotFoundError(
                             f"模型文件未找到: {MODEL_PATH}\n"

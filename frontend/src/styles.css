@@ -2189,6 +2189,11 @@ p {
 .model-path-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .model-picker .secondary-button { flex-shrink: 0; }
 #startupModelBtn { margin-top: 14px; }
+.model-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--accent-soft); font-size: 12px; }
+.model-notice[hidden] { display: none; }
+.model-notice span { flex: 1 1 260px; }
+#downloadModelBtn { margin-top: 12px; }
+#startupDownloadBtn, #startupSettingsBtn { margin-top: 10px; }
 @media (min-width: 800px) {
   .main-window-shell .translate-workbench { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 20px; padding: 24px; }
 }

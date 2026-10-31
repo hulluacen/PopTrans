@@ -23,6 +23,9 @@ import (
 const createNoWindow = 0x08000000
 const serverPortEnv = "TRANSLATE_SERVER_PORT"
 
+var ErrSupervisorStopped = errors.New("backend supervisor stopped")
+var ErrModelRequired = errors.New("请选择本地模型，或下载默认模型")
+
 // StartupReadyTimeout 是等待本地后端（含首次模型的下载）就绪的最大等待时长。
 // 首次运行需下载约 1.13GB 的 GGUF 模型，在较慢网络下可能耗时数分钟甚至更久，
 // 因此给足余量；模型下载进度会通过 /health 的 translator_status 实时回传并显示在托盘。
@@ -56,7 +59,7 @@ func (s *Supervisor) EnsureRunning(ctx context.Context, onStatus func(string)) e
 	stopCtx := s.stopCtx
 	if stopCtx.Err() != nil {
 		s.mu.Unlock()
-		return errors.New("backend supervisor is stopped")
+		return ErrSupervisorStopped
 	}
 
 	// 若已有由 supervisor 管理且活着的进程，直接等待就绪
@@ -83,6 +86,9 @@ func (s *Supervisor) EnsureRunning(ctx context.Context, onStatus func(string)) e
 		if initErr := translatorInitializationError(health); initErr != nil {
 			return initErr
 		}
+		if health.ModelRequired {
+			return ErrModelRequired
+		}
 		if health.TranslatorReady {
 			return nil
 		}
@@ -96,7 +102,7 @@ func (s *Supervisor) EnsureRunning(ctx context.Context, onStatus func(string)) e
 		s.mu.Lock()
 		if s.stopCtx.Err() != nil {
 			s.mu.Unlock()
-			return errors.New("backend supervisor is stopped")
+			return ErrSupervisorStopped
 		}
 		if s.cmd != nil && s.owned && s.cmd.Process != nil {
 			s.mu.Unlock()
@@ -189,7 +195,7 @@ func (s *Supervisor) waitForReady(ctx, stopCtx context.Context, onStatus func(st
 		select {
 		case <-stopCtx.Done():
 			log.Printf("supervisor stopped while waiting for backend ready")
-			return errors.New("backend supervisor stopped")
+			return ErrSupervisorStopped
 		case <-ctx.Done():
 			log.Printf("supervisor context done while waiting for backend: %v", ctx.Err())
 			return ctx.Err()
@@ -204,6 +210,10 @@ func (s *Supervisor) waitForReady(ctx, stopCtx context.Context, onStatus func(st
 			select {
 			case waitErr, ok := <-waitCh:
 				s.mu.Lock()
+				if stopCtx.Err() != nil || s.stopCtx != stopCtx {
+					s.mu.Unlock()
+					return ErrSupervisorStopped
+				}
 				s.waitCh = nil
 				s.cmd = nil
 				s.owned = false
@@ -219,6 +229,9 @@ func (s *Supervisor) waitForReady(ctx, stopCtx context.Context, onStatus func(st
 		}
 
 		health, err := s.client.Health(ctx)
+		if stopCtx.Err() != nil {
+			return ErrSupervisorStopped
+		}
 		if err == nil && health.Status == "ok" {
 			log.Printf(
 				"supervisor health check success on attempt %d: translator_ready=%t translator_status=%q ocr_loaded=%t",
@@ -231,12 +244,14 @@ func (s *Supervisor) waitForReady(ctx, stopCtx context.Context, onStatus func(st
 				onStatus(health.TranslatorStatus)
 			}
 			if initErr := translatorInitializationError(health); initErr != nil {
-				s.Stop()
 				return initErr
 			}
 			if health.TranslatorReady {
 				log.Printf("supervisor backend ready on attempt %d", attempt)
 				return nil
+			}
+			if health.ModelRequired {
+				return ErrModelRequired
 			}
 			log.Printf("supervisor backend reachable but translator not ready on attempt %d", attempt)
 		} else {
@@ -246,7 +261,7 @@ func (s *Supervisor) waitForReady(ctx, stopCtx context.Context, onStatus func(st
 		select {
 		case <-stopCtx.Done():
 			log.Printf("supervisor stopped while waiting for backend: stopped")
-			return errors.New("backend supervisor stopped")
+			return ErrSupervisorStopped
 		case <-ctx.Done():
 			log.Printf("supervisor context done while waiting for backend: %v", ctx.Err())
 			return ctx.Err()

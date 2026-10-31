@@ -2,15 +2,66 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestRestartCancelsOldStartupWithoutReportingAnEngineFailure(t *testing.T) {
+	var mu sync.Mutex
+	ready := false
+	requested := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		value := ready
+		mu.Unlock()
+		select {
+		case requested <- struct{}{}:
+		default:
+		}
+		fmt.Fprintf(w, `{"status":"ok","translator_ready":%t}`, value)
+	}))
+	defer server.Close()
+	s := NewSupervisor(t.TempDir(), NewClient(server.URL))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	old := make(chan error, 1)
+	go func() { old <- s.EnsureRunning(ctx, func(string) {}) }()
+	<-requested
+	mu.Lock()
+	ready = true
+	mu.Unlock()
+	if err := s.Restart(ctx, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-old; !errors.Is(err, ErrSupervisorStopped) {
+		t.Fatalf("old startup error = %v", err)
+	}
+	if err := s.EnsureRunning(ctx, func(string) {}); err != nil {
+		t.Fatalf("new startup failed: %v", err)
+	}
+}
+
+func TestMissingModelReturnsChoiceStateWithoutStoppingService(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"status":"ok","translator_ready":false,"model_required":true}`)
+	}))
+	defer server.Close()
+	s := NewSupervisor(t.TempDir(), NewClient(server.URL))
+	if err := s.EnsureRunning(context.Background(), func(string) {}); !errors.Is(err, ErrModelRequired) {
+		t.Fatal(err)
+	}
+	if s.stopCtx.Err() != nil {
+		t.Fatal("model choice stopped the service")
+	}
+}
 
 func TestEnsureRunningReturnsTranslatorInitializationErrorImmediately(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

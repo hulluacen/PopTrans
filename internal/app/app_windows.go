@@ -292,8 +292,17 @@ func (a *App) ensureBackendReady() {
 	})
 	if err != nil {
 		log.Printf("app ensure backend ready failed: %v", err)
+		if errors.Is(err, backend.ErrSupervisorStopped) || errors.Is(err, context.Canceled) {
+			return
+		}
+		if errors.Is(err, backend.ErrModelRequired) {
+			a.setStatus(err.Error())
+			return
+		}
 		a.setStatus("本地 API 启动失败")
-		a.pushError("", err.Error())
+		// Startup and model errors belong to the startup/settings view. They
+		// must not replace an open workbench with the compact result popup.
+		a.setStatus(err.Error())
 		return
 	}
 
@@ -647,7 +656,7 @@ func (a *App) reloadSettings() {
 	loggingChanged := next.LoggingEnabled != a.cfg.LoggingEnabled
 	portChanged := next.ServerPort != a.cfg.ServerPort
 	deviceChanged := next.AccelerationDevice != a.cfg.AccelerationDevice
-	modelChanged := next.ModelPath != a.cfg.ModelPath
+	modelChanged := next.ModelPath != a.cfg.ModelPath || next.DownloadDefaultModel != a.cfg.DownloadDefaultModel
 	if err := a.applySettings(next); err != nil {
 		log.Printf("app apply reloaded settings failed: %v", err)
 		a.pushError("", err.Error())
@@ -761,8 +770,14 @@ func (a *App) restartBackendForConfigChange(portChanged bool) {
 			a.setStatus(status)
 		}
 	}); err != nil {
+		if errors.Is(err, backend.ErrSupervisorStopped) || errors.Is(err, context.Canceled) {
+			return
+		}
+		if errors.Is(err, backend.ErrModelRequired) {
+			a.setStatus(err.Error())
+			return
+		}
 		a.setStatus("本地服务重启失败")
-		a.pushError("", err.Error())
 		return
 	}
 	a.setBackendIdleTimeout(a.cfg.AIIdleTimeout())

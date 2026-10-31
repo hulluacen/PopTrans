@@ -13,6 +13,29 @@ from backend.translator import (
 
 
 class ModelSelectionTests(unittest.TestCase):
+    def test_first_run_waits_for_choice_without_downloading(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            engine = Translator()
+            with patch("backend.translator.settings_path", return_value=root / "settings.json"), patch("backend.translator.MODEL_PATH", str(root / "default.gguf")), patch.object(engine, "_download_model") as download:
+                engine._setup_worker(None, None)
+                download.assert_not_called()
+                self.assertTrue(engine.model_required)
+                self.assertIn("请选择", engine.status)
+                self.assertFalse(engine.ready)
+
+    def test_explicit_download_choice_uses_original_downloader(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = root / "settings.json"
+            cfg.write_text('{"download_default_model":true}', encoding="utf-8")
+            engine = Translator()
+            with patch("backend.translator.settings_path", return_value=cfg), patch("backend.translator.MODEL_PATH", str(root / "default.gguf")), patch("backend.translator._OFFLINE_MODE", False), patch.object(engine, "_download_model") as download, patch.object(engine, "_load_model"):
+                engine._setup_worker(None, None)
+                download.assert_called_once()
+                self.assertFalse(engine.model_required)
+                self.assertTrue(engine.ready)
+
     def test_custom_name_outside_default_directory(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

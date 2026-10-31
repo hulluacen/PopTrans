@@ -27,8 +27,9 @@ type Config struct {
 	ServerPort       int    `json:"server_port"`
 	Theme            string `json:"theme"`
 	// AccelerationDevice: "auto" | "gpu" | "cpu"
-	AccelerationDevice string `json:"acceleration_device"`
-	ModelPath          string `json:"model_path"`
+	AccelerationDevice   string `json:"acceleration_device"`
+	ModelPath            string `json:"model_path"`
+	DownloadDefaultModel bool   `json:"download_default_model"`
 	// UIIdleMinutes is how long the UI process stays alive after the window is hidden.
 	// 0 means never auto-exit. Missing values fall back to DefaultUIIdleMinutes.
 	UIIdleMinutes int `json:"ui_idle_minutes"`

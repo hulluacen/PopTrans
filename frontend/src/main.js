@@ -33,6 +33,7 @@ import {
   Translate,
   SelectModel,
   ShowSettings,
+  DownloadDefaultModel,
 } from "../wailsjs/go/wailsui/App"
 import {
   EventsOn,
@@ -505,6 +506,11 @@ function renderMainWindow() {
       </header>
 
       <div class="main-body">
+        <div class="model-notice" id="modelNotice" ${state.health?.model_required ? "" : "hidden"}>
+          <span>尚未选择翻译模型，请选择已有文件，或下载默认模型（约 1.13GB）。</span>
+          <button class="secondary-button" id="noticeSelectModelBtn" type="button">选择已有模型</button>
+          <button class="secondary-button" id="noticeDownloadModelBtn" type="button">下载默认模型</button>
+        </div>
         ${isTranslateTab ? renderTranslateViewHTML() : renderSettingsViewHTML()}
       </div>
 
@@ -526,6 +532,8 @@ function renderMainWindow() {
   document.querySelector("#maximizeBtn")?.addEventListener("click", () => {
     if (window.runtime?.WindowToggleMaximise) WindowToggleMaximise()
   })
+  document.querySelector("#noticeSelectModelBtn")?.addEventListener("click", chooseStartupModel)
+  document.querySelector("#noticeDownloadModelBtn")?.addEventListener("click", requestModelDownload)
 
   // Bind specific view events
   if (isTranslateTab) {
@@ -799,6 +807,7 @@ function renderSettingsViewHTML() {
           <button class="secondary-button" id="selectModelBtn" type="button">浏览…</button>
           <button class="secondary-button" id="resetModelBtn" type="button">默认</button>
         </div>
+        <button class="secondary-button" id="downloadModelBtn" type="button">下载默认模型（约 1.13GB）</button>
         <p class="field-help" id="modelHelp" aria-live="polite">推荐 Hy-MT2 系列 GGUF；保存后自动重新加载。其他模型的翻译效果取决于模型兼容性。</p>
       </section>
       <div class="section-rule"></div>
@@ -978,6 +987,7 @@ function renderSettingsFooterHTML() {
 }
 
 function bindSettingsViewEvents() {
+  document.querySelector("#downloadModelBtn")?.addEventListener("click", requestModelDownload)
   document.querySelector("#selectModelBtn")?.addEventListener("click", async () => {
     const button = document.querySelector("#selectModelBtn")
     const help = document.querySelector("#modelHelp")
@@ -1176,11 +1186,15 @@ async function saveSettings() {
       document.querySelector('input[name="theme"]:checked')?.value || "system",
   }
 
+  if (next.model_path !== state.config.model_path) next.download_default_model = false
+
   if (button) button.disabled = true
   if (status) showStatus(status, "正在保存...", "pending")
   try {
     await SaveConfig(next)
     state.config = next
+    clearInterval(healthTimer)
+    healthTimer = setInterval(refreshHealth, 1000)
     if (status) {
       showStatus(status, "设置已保存", "success")
       setTimeout(() => {
@@ -1228,7 +1242,7 @@ function renderStartup() {
         mainWindowSized = true
       }
     } else if (!startupWindowSized) {
-      WindowSetSize(360, 220)
+      WindowSetSize(440, 320)
       if (window.runtime?.WindowCenter) WindowCenter()
       startupWindowSized = true
     }
@@ -1236,7 +1250,8 @@ function renderStartup() {
   const status = state.startup_status || "正在加载翻译模型..."
   const error = state.startup_error
   const progress = parseProgress(status)
-  const isDownloading = isDownloadingModel(status)
+  const needsModel = Boolean(state.health?.model_required)
+  const isDownloading = !needsModel && isDownloadingModel(status)
 
   app.innerHTML = `
     <main class="startup-shell" role="status" aria-live="polite">
@@ -1252,10 +1267,12 @@ function renderStartup() {
       <div class="startup-body">
         <p class="startup-status">${escapeHtml(status)}</p>
         ${error ? `<p class="startup-error">${escapeHtml(error)}</p>` : ""}
-        <div class="startup-progress" aria-hidden="true">
+        <div class="startup-progress" aria-hidden="true" ${needsModel ? "hidden" : ""}>
           <span ${progress !== null ? `style="width: ${progress}%; animation: none;"` : ""}></span>
         </div>
-        <button class="startup-bg-btn" id="startupModelBtn" type="button">选择已有模型 / 打开设置</button>
+        <button class="startup-bg-btn" id="startupModelBtn" type="button">选择已有模型</button>
+        ${needsModel ? '<button class="startup-bg-btn" id="startupDownloadBtn" type="button">下载默认模型（约 1.13GB）</button>' : ""}
+        <button class="startup-bg-btn" id="startupSettingsBtn" type="button">打开设置</button>
         ${
           isDownloading
             ? `
@@ -1276,7 +1293,9 @@ function renderStartup() {
   document
     .querySelector("#startupDismissBtn")
     ?.addEventListener("click", dismissStartup)
-  document.querySelector("#startupModelBtn")?.addEventListener("click", async () => {
+  document.querySelector("#startupModelBtn")?.addEventListener("click", chooseStartupModel)
+  document.querySelector("#startupDownloadBtn")?.addEventListener("click", requestModelDownload)
+  document.querySelector("#startupSettingsBtn")?.addEventListener("click", async () => {
     if (window.go?.wailsui?.App?.ShowSettings) await ShowSettings()
     else {
       state.startup_loading = false
@@ -1288,6 +1307,43 @@ function renderStartup() {
     .querySelector("#startupBgBtn")
     ?.addEventListener("click", dismissStartup)
   createIcons({ icons, attrs: { "stroke-width": 1.8 } })
+}
+
+async function chooseStartupModel() {
+  try {
+    const path = await SelectModel()
+    if (!path) return
+    const next = { ...state.config, model_path: path, download_default_model: false }
+    await SaveConfig(next)
+    state.config = next
+    state.startup_error = ""
+  } catch (error) {
+    showModelActionError(error)
+  }
+}
+
+async function requestModelDownload() {
+  const buttons = document.querySelectorAll("#startupDownloadBtn, #noticeDownloadModelBtn, #downloadModelBtn")
+  buttons.forEach(button => { button.disabled = true })
+  try {
+    await DownloadDefaultModel()
+    state.config = { ...state.config, model_path: "", download_default_model: true }
+    const input = document.querySelector("#modelPath")
+    if (input) input.value = ""
+    const help = document.querySelector("#modelHelp")
+    if (help) help.textContent = "正在准备下载默认模型，可留在此页查看引擎状态。"
+    state.startup_error = ""
+  } catch (error) {
+    showModelActionError(error)
+  } finally {
+    buttons.forEach(button => { button.disabled = false })
+  }
+}
+
+function showModelActionError(error) {
+  const message = readableError(error)
+  const help = document.querySelector("#modelHelp") || document.querySelector(".startup-status")
+  if (help) help.textContent = message
 }
 
 function dismissStartup() {
@@ -1314,13 +1370,15 @@ async function refreshHealth() {
     const next = await State()
     const ready = Boolean(next.health?.translator_ready)
     state.health = next.health
-    if (ready) clearInterval(healthTimer)
+    const notice = document.querySelector("#modelNotice")
+    if (notice) notice.hidden = !next.health?.model_required
     const node = document.querySelector("#engineState")
     const text = document.querySelector("#engineText")
     if (!node || !text) return
     node.classList.toggle("is-ready", ready)
     node.classList.toggle("is-loading", !ready)
-    text.textContent = ready ? "引擎就绪" : "正在启动"
+    text.textContent = ready ? "引擎就绪" : (next.health?.model_required ? "待选择模型" : "正在加载")
+    node.title = next.health?.translator_status || "AI 引擎状态"
   } catch {
     // The next interval retries
   }

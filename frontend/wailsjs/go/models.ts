@@ -3,6 +3,7 @@ export namespace backend {
 	export class Health {
 	    status: string;
 	    translator_ready: boolean;
+	    model_required: boolean;
 	    translator_status: string;
 	    ocr_loaded: boolean;
 	    device_info?: Record<string, any>;
@@ -15,6 +16,7 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.status = source["status"];
 	        this.translator_ready = source["translator_ready"];
+	        this.model_required = source["model_required"];
 	        this.translator_status = source["translator_status"];
 	        this.ocr_loaded = source["ocr_loaded"];
 	        this.device_info = source["device_info"];
@@ -36,6 +38,7 @@ export namespace config {
 	    theme: string;
 	    acceleration_device: string;
 	    model_path: string;
+	    download_default_model: boolean;
 	    ui_idle_minutes: number;
 	    ai_idle_minutes: number;
 	    launch_at_login: boolean;
@@ -56,6 +59,7 @@ export namespace config {
 	        this.theme = source["theme"];
 	        this.acceleration_device = source["acceleration_device"];
 	        this.model_path = source["model_path"];
+	        this.download_default_model = source["download_default_model"];
 	        this.ui_idle_minutes = source["ui_idle_minutes"];
 	        this.ai_idle_minutes = source["ai_idle_minutes"];
 	        this.launch_at_login = source["launch_at_login"];

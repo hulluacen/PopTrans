@@ -190,11 +190,19 @@ func (a *App) monitorStartup() {
 		select {
 		case <-ticker.C:
 			health, err := a.client.Health(ctx)
+			if err == nil && health.ModelRequired {
+				deadline.Reset(backend.StartupReadyTimeout)
+			}
 			a.mu.Lock()
 			if err != nil {
 				a.startupStatus = "正在连接本地服务..."
 			} else if health.TranslatorStatus != "" {
 				a.startupStatus = health.TranslatorStatus
+				if strings.HasPrefix(health.TranslatorStatus, "翻译引擎初始化失败") {
+					a.startupError = health.TranslatorStatus
+				} else {
+					a.startupError = ""
+				}
 			} else if !health.TranslatorReady {
 				a.startupStatus = "正在加载翻译模型..."
 			}
@@ -383,6 +391,16 @@ func (a *App) SelectModel() (string, error) {
 		return rel, nil
 	}
 	return path, nil
+}
+
+func (a *App) DownloadDefaultModel() error {
+	cfg, err := config.Load(a.baseDir)
+	if err != nil {
+		return err
+	}
+	cfg.ModelPath = ""
+	cfg.DownloadDefaultModel = true
+	return a.SaveConfig(cfg)
 }
 
 func (a *App) Translate(text string) (TranslateResult, error) {

@@ -23,6 +23,7 @@ type Client struct {
 type Health struct {
 	Status           string         `json:"status"`
 	TranslatorReady  bool           `json:"translator_ready"`
+	ModelRequired    bool           `json:"model_required"`
 	TranslatorStatus string         `json:"translator_status"`
 	OCRLoaded        bool           `json:"ocr_loaded"`
 	DeviceInfo       map[string]any `json:"device_info,omitempty"`

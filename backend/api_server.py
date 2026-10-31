@@ -72,6 +72,7 @@ def health_check():
     return {
         "status": "ok",
         "translator_ready": translator_engine.ready,
+        "model_required": translator_engine.model_required,
         "translator_status": translator_engine.status,
         "device_info": translator_engine.device_info,
         "ocr_loaded": ocr_engine.is_loaded(),

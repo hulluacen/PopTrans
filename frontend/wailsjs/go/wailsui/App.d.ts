@@ -4,6 +4,8 @@ import {config} from '../models';
 import {uidaemon} from '../models';
 import {wailsui} from '../models';
 
+export function DownloadDefaultModel():Promise<void>;
+
 export function Hide():Promise<void>;
 
 export function HideWindow():Promise<void>;
