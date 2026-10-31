@@ -2193,6 +2193,17 @@ p {
 .model-notice[hidden] { display: none; }
 .model-notice span { flex: 1 1 260px; }
 #downloadModelBtn { margin-top: 12px; }
+.glossary-row { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); }
+.glossary-row label { display: block; color: var(--muted); font-size: 12px; }
+.glossary-row input.model-path-input { margin-top: 5px; }
+.glossary-row-tools, .glossary-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.glossary-row-tools select { width: 100px; }
+.glossary-row-tools button { margin-left: auto; }
+.glossary-term-pair { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; margin: 10px 0; }
+.glossary-actions { margin-top: 14px; }
+.glossary-actions .secondary-button { padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-raised); color: var(--text); cursor: pointer; font: inherit; font-size: 12px; }
+.glossary-actions #saveGlossaryBtn { background: var(--accent); border-color: var(--accent); color: white; }
+.glossary-actions button:disabled { opacity: 0.5; cursor: wait; }
 #startupDownloadBtn, #startupSettingsBtn { margin-top: 10px; }
 @media (min-width: 800px) {
   .main-window-shell .translate-workbench { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 20px; padding: 24px; }

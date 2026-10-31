@@ -1,5 +1,5 @@
 export namespace backend {
-	
+
 	export class Health {
 	    status: string;
 	    translator_ready: boolean;
@@ -8,11 +8,11 @@ export namespace backend {
 	    translator_status: string;
 	    ocr_loaded: boolean;
 	    device_info?: Record<string, any>;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Health(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.status = source["status"];
@@ -28,7 +28,7 @@ export namespace backend {
 }
 
 export namespace config {
-	
+
 	export class Config {
 	    hotkey: string;
 	    hotkey_display: string;
@@ -45,11 +45,11 @@ export namespace config {
 	    ui_idle_minutes: number;
 	    ai_idle_minutes: number;
 	    launch_at_login: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.hotkey = source["hotkey"];
@@ -69,21 +69,77 @@ export namespace config {
 	        this.launch_at_login = source["launch_at_login"];
 	    }
 	}
+	export class GlossaryEntry {
+	    source: string;
+	    target: string;
+	    context: string;
+	    source_lang: string;
+	    target_lang: string;
+	    enabled: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new GlossaryEntry(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.target = source["target"];
+	        this.context = source["context"];
+	        this.source_lang = source["source_lang"];
+	        this.target_lang = source["target_lang"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	export class Glossary {
+	    enabled: boolean;
+	    domain: string;
+	    entries: GlossaryEntry[];
+
+	    static createFrom(source: any = {}) {
+	        return new Glossary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.domain = source["domain"];
+	        this.entries = this.convertValues(source["entries"], GlossaryEntry);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 
 export namespace uidaemon {
-	
+
 	export class ResultPayload {
 	    source: string;
 	    result: string;
 	    error: string;
 	    loading: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ResultPayload(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.source = source["source"];
@@ -98,11 +154,11 @@ export namespace uidaemon {
 	    visible: boolean;
 	    settings_open: boolean;
 	    hotkeys_paused: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ready = source["ready"];
@@ -116,17 +172,17 @@ export namespace uidaemon {
 }
 
 export namespace wailsui {
-	
+
 	export class ResultView {
 	    source: string;
 	    result: string;
 	    error: string;
 	    loading: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ResultView(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.source = source["source"];
@@ -138,11 +194,11 @@ export namespace wailsui {
 	export class TranslateResult {
 	    source: string;
 	    result: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TranslateResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.source = source["source"];
@@ -159,11 +215,11 @@ export namespace wailsui {
 	    startup_error: string;
 	    settings_open: boolean;
 	    visible: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new UIState(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.config = this.convertValues(source["config"], config.Config);
@@ -176,7 +232,7 @@ export namespace wailsui {
 	        this.settings_open = source["settings_open"];
 	        this.visible = source["visible"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;

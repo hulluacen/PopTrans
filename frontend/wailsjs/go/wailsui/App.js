@@ -6,6 +6,10 @@ export function DownloadDefaultModel() {
   return window['go']['wailsui']['App']['DownloadDefaultModel']();
 }
 
+export function GetGlossary() {
+  return window['go']['wailsui']['App']['GetGlossary']();
+}
+
 export function Hide() {
   return window['go']['wailsui']['App']['Hide']();
 }
@@ -28,6 +32,10 @@ export function Quit() {
 
 export function SaveConfig(arg1) {
   return window['go']['wailsui']['App']['SaveConfig'](arg1);
+}
+
+export function SaveGlossary(arg1) {
+  return window['go']['wailsui']['App']['SaveGlossary'](arg1);
 }
 
 export function SelectModel() {

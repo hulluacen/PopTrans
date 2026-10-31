@@ -349,6 +349,14 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	return nil
 }
 
+func (a *App) SaveGlossary(glossary config.Glossary) error {
+	return config.SaveGlossary(a.baseDir, glossary)
+}
+
+func (a *App) GetGlossary() (config.Glossary, error) {
+	return config.LoadGlossary(a.baseDir)
+}
+
 func (a *App) validateModelPath(path string) error {
 	if strings.TrimSpace(path) == "" {
 		return nil

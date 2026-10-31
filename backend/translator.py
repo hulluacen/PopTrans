@@ -18,6 +18,7 @@ from collections import OrderedDict
 from typing import Optional, Tuple
 
 from backend.runtime_paths import application_dir, settings_path
+from backend.glossary import Glossary, Snapshot, REFERENCE_TOKEN_BUDGET
 
 logger = logging.getLogger(__name__)
 
@@ -269,9 +270,9 @@ PROMPT_TEMPLATE = (
 )
 
 
-def build_translation_prompt(target_lang: str, source_text: str) -> str:
+def build_translation_prompt(target_lang: str, source_text: str, reference: str = "") -> str:
     """Build the official Hy-MT2 default-translation instruction."""
-    return PROMPT_TEMPLATE.format(
+    return reference + PROMPT_TEMPLATE.format(
         target_lang=LANG_NAMES_EN[target_lang],
         source_text=source_text,
     )
@@ -319,14 +320,14 @@ def _hard_split_by_tokens(text: str, max_tokens: int) -> list[str]:
     return pieces
 
 
-def _split_long_text(text: str):
+def _split_long_text(text: str, max_tokens: int = SOURCE_MAX_TOKENS):
     """把超长源文按句子边界拆成可放入单次上下文的块。
 
     Returns:
         (chunks, split): split 为 True 表示发生了分块。
         未超限时直接返回 [text], False，保持原有单次推理路径。
     """
-    if estimate_tokens(text) <= SOURCE_MAX_TOKENS:
+    if estimate_tokens(text) <= max_tokens:
         return [text], False
 
     parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text) if p and p.strip()]
@@ -338,14 +339,14 @@ def _split_long_text(text: str):
     current_tokens = 0
     for part in parts:
         part_tokens = estimate_tokens(part)
-        if part_tokens > SOURCE_MAX_TOKENS:
+        if part_tokens > max_tokens:
             if current:
                 chunks.append("\n".join(current))
                 current = []
                 current_tokens = 0
-            chunks.extend(_hard_split_by_tokens(part, SOURCE_MAX_TOKENS))
+            chunks.extend(_hard_split_by_tokens(part, max_tokens))
             continue
-        if current and current_tokens + part_tokens > SOURCE_MAX_TOKENS:
+        if current and current_tokens + part_tokens > max_tokens:
             chunks.append("\n".join(current))
             current = []
             current_tokens = 0
@@ -413,6 +414,8 @@ class Translator:
         self._inference_lock = threading.Lock()
         self._cache_lock = threading.Lock()
         self._translation_cache = OrderedDict()
+        self._glossary = Glossary()
+        self._active_glossary = Snapshot()
         self._status_message = "翻译引擎未初始化"
         self._configured_device = "auto"
         self._actual_device = "cpu"
@@ -725,7 +728,7 @@ class Translator:
         max_tokens 不再写死：短文本沿用接近 384 的默认，长文分块可获得更大
         输出空间，同时不会超过 n_ctx 导致上下文溢出。
         """
-        prompt = build_translation_prompt(target_code, source_text)
+        prompt = build_translation_prompt(target_code, source_text, self._reference(source_text, target_code))
         prompt_tokens = estimate_tokens(prompt)
         max_tokens = max(
             64,
@@ -746,6 +749,9 @@ class Translator:
             if content and content.strip():
                 return content.strip()
         return None
+
+    def _reference(self, text: str, target_code: str) -> str:
+        return self._glossary.reference(self._active_glossary, text, target_code, estimate_tokens)
 
     def translate(
         self,
@@ -782,7 +788,8 @@ class Translator:
         except ValueError as error:
             return None, str(error)
 
-        cache_key = (text, normalized_target or "auto")
+        self._active_glossary = self._glossary.snapshot()
+        cache_key = (text, normalized_target or "auto", self._active_glossary.revision)
         cached_result = self._get_cached_translation(cache_key)
         if cached_result is not None:
             logger.info(f"翻译缓存命中: {text[:30]}...")
@@ -805,7 +812,8 @@ class Translator:
                     target_code = "zh"
 
             # 构造翻译 prompt。长文先分块，避免上下文溢出报错与输出截断。
-            chunks, split = _split_long_text(text)
+            budget = SOURCE_MAX_TOKENS - REFERENCE_TOKEN_BUDGET if self._reference(text, target_code) else SOURCE_MAX_TOKENS
+            chunks, split = _split_long_text(text, budget)
             if split:
                 logger.info(f"翻译长文分块: chunks={len(chunks)}")
                 results = []
@@ -858,11 +866,13 @@ class Translator:
             else:
                 target_code = "en" if self._is_chinese(text) else "zh"
 
-            chunks, split = _split_long_text(text)
+            self._active_glossary = self._glossary.snapshot()
+            budget = SOURCE_MAX_TOKENS - REFERENCE_TOKEN_BUDGET if self._reference(text, target_code) else SOURCE_MAX_TOKENS
+            chunks, split = _split_long_text(text, budget)
             for index, chunk in enumerate(chunks):
                 if split and index > 0:
                     yield "\n"
-                prompt = build_translation_prompt(target_code, chunk)
+                prompt = build_translation_prompt(target_code, chunk, self._reference(chunk, target_code))
                 prompt_tokens = estimate_tokens(prompt)
                 max_tokens = max(
                     64,

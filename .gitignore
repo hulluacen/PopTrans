@@ -43,6 +43,8 @@ models/
 
 # Config files with sensitive data
 settings.json
+glossary.json
+.glossary-*.tmp
 
 # OS files
 .DS_Store
