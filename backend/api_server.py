@@ -7,6 +7,7 @@ from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from PIL import Image
 
 from backend.ocr_service import OCRService
@@ -73,6 +74,7 @@ def health_check():
         "status": "ok",
         "translator_ready": translator_engine.ready,
         "model_required": translator_engine.model_required,
+        "busy": translator_engine._inference_lock.locked(),
         "translator_status": translator_engine.status,
         "device_info": translator_engine.device_info,
         "ocr_loaded": ocr_engine.is_loaded(),
@@ -91,7 +93,7 @@ async def recognize_ocr(file: UploadFile = File(...)):
         if image.mode not in ("L", "RGB", "RGBA"):
             image = image.convert("RGB")
             
-        result = ocr_engine.recognize_image(image)
+        result = await run_in_threadpool(ocr_engine.recognize_image, image)
         return result
     except Exception as e:
         logger.exception("OCR 处理异常")
@@ -118,7 +120,7 @@ async def recognize_and_translate_ocr(
         if image.mode not in ("L", "RGB", "RGBA"):
             image = image.convert("RGB")
 
-        ocr_result = ocr_engine.recognize_image(image)
+        ocr_result = await run_in_threadpool(ocr_engine.recognize_image, image)
         source_text = (ocr_result.get("text") or "").strip()
         if not source_text:
             return {
@@ -128,7 +130,7 @@ async def recognize_and_translate_ocr(
                 "scale": ocr_result.get("scale"),
             }
 
-        translation, error = translator_engine.translate(source_text, target_lang)
+        translation, error = await run_in_threadpool(translator_engine.translate, source_text, target_lang)
         if error:
             raise HTTPException(status_code=500, detail=error)
 
@@ -193,7 +195,7 @@ async def chat_completions(req: ChatCompletionRequest):
             raise HTTPException(status_code=501, detail="Streaming not implemented in translator")
     else:
         # 普通翻译
-        result, error = translator_engine.translate(user_msg, req.target_lang)
+        result, error = await run_in_threadpool(translator_engine.translate, user_msg, req.target_lang)
         if error:
             raise HTTPException(status_code=500, detail=error)
             

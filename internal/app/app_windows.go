@@ -358,7 +358,7 @@ func (a *App) handleTranslate() {
 		a.setStatus("正在翻译...")
 		a.pushLoading(text)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), backend.TranslationTimeout)
 		defer cancel()
 
 		var result string
@@ -454,7 +454,7 @@ func (a *App) handleOCRSelection(rect win.Rect) {
 		// immediate feedback during recognition and translation.
 		a.pushLoading("")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), backend.TranslationTimeout)
 		defer cancel()
 
 		a.setStatus("正在识别 OCR 文本...")
@@ -655,7 +655,7 @@ func (a *App) reloadSettings() {
 	}
 	loggingChanged := next.LoggingEnabled != a.cfg.LoggingEnabled
 	portChanged := next.ServerPort != a.cfg.ServerPort
-	deviceChanged := next.AccelerationDevice != a.cfg.AccelerationDevice
+	deviceChanged := next.AccelerationDevice != a.cfg.AccelerationDevice || next.GPULayers != a.cfg.GPULayers
 	modelChanged := next.ModelPath != a.cfg.ModelPath || next.DownloadDefaultModel != a.cfg.DownloadDefaultModel
 	if err := a.applySettings(next); err != nil {
 		log.Printf("app apply reloaded settings failed: %v", err)
@@ -905,6 +905,15 @@ func (a *App) stopBackendForIdleTimeout(timeout time.Duration) {
 	a.backendIdleMu.Unlock()
 
 	log.Printf("backend idle timeout reached (%s), stopping ai engine", timeout)
+	// Manual workbench requests go directly to the local API. They must also
+	// keep the engine alive even though they do not increment host idle users.
+	healthCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	health, err := a.client.Health(healthCtx)
+	cancel()
+	if err == nil && health.Busy {
+		a.setBackendIdleTimeout(timeout)
+		return
+	}
 	a.supervisor.Stop()
 	a.setStatus("AI 引擎已休眠")
 }

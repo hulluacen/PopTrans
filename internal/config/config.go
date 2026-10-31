@@ -30,6 +30,7 @@ type Config struct {
 	AccelerationDevice   string `json:"acceleration_device"`
 	ModelPath            string `json:"model_path"`
 	DownloadDefaultModel bool   `json:"download_default_model"`
+	GPULayers            int    `json:"gpu_layers"`
 	// UIIdleMinutes is how long the UI process stays alive after the window is hidden.
 	// 0 means never auto-exit. Missing values fall back to DefaultUIIdleMinutes.
 	UIIdleMinutes int `json:"ui_idle_minutes"`
@@ -51,6 +52,7 @@ var Default = Config{
 	ServerPort:         DefaultServerPort,
 	Theme:              "system",
 	AccelerationDevice: "auto",
+	GPULayers:          -1,
 	UIIdleMinutes:      DefaultUIIdleMinutes,
 	AIIdleMinutes:      DefaultAIIdleMinutes,
 	LaunchAtLogin:      false,
@@ -132,6 +134,9 @@ func ValidateServerPort(port int) error {
 }
 
 func mergeDefaults(cfg *Config) {
+	if cfg.GPULayers < -1 || cfg.GPULayers > 999 {
+		cfg.GPULayers = -1
+	}
 	if cfg.Hotkey == "" {
 		cfg.Hotkey = Default.Hotkey
 	}

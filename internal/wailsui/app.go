@@ -409,11 +409,17 @@ func (a *App) Translate(text string) (TranslateResult, error) {
 		return TranslateResult{}, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), backend.TranslationTimeout)
 	defer cancel()
+	if err := a.supervisor.EnsureRunning(ctx, func(string) {}); err != nil {
+		return TranslateResult{}, err
+	}
 
 	result, err := a.client.Translate(ctx, text)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return TranslateResult{}, errors.New("翻译等待超时，可尝试缩短文本或使用较小的模型；这不代表服务已崩溃")
+		}
 		return TranslateResult{}, err
 	}
 	return TranslateResult{Source: text, Result: strings.TrimSpace(result)}, nil

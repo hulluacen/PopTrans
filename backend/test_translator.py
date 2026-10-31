@@ -1,6 +1,9 @@
 import unittest
 import json
 import tempfile
+import concurrent.futures
+import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,10 +12,18 @@ from backend.translator import (
     build_translation_prompt,
     normalize_target_language,
     resolve_model_path,
+    _read_gpu_layers,
 )
 
 
 class ModelSelectionTests(unittest.TestCase):
+    def test_gpu_layer_preference_preserves_partial_offload(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = Path(folder) / "settings.json"
+            with patch("backend.translator.settings_path", return_value=cfg):
+                for configured, expected in [(16,16), (0,0), (-1,-1), (-2,-1), (True,-1), (1000,-1)]:
+                    cfg.write_text(json.dumps({"gpu_layers":configured}),encoding="utf-8")
+                    self.assertEqual(_read_gpu_layers(), expected)
     def test_first_run_waits_for_choice_without_downloading(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -97,6 +108,27 @@ class FakeModel:
 
 
 class TranslatorLanguageTests(unittest.TestCase):
+    def test_concurrent_requests_do_not_share_a_model_context(self):
+        active = 0
+        peak = 0
+        guard = threading.Lock()
+
+        def complete(*args, **kwargs):
+            nonlocal active, peak
+            with guard:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.02)
+            with guard:
+                active -= 1
+            return "translated"
+
+        with patch.object(self.translator, "_complete", complete):
+            with concurrent.futures.ThreadPoolExecutor(3) as pool:
+                results = list(pool.map(self.translator.translate, ["first", "second", "third"]))
+        self.assertEqual(peak, 1)
+        self.assertTrue(all(error is None for _, error in results))
+
     def setUp(self):
         self.translator = Translator()
         self.translator.ready = True

@@ -61,6 +61,17 @@ func (s *Supervisor) EnsureRunning(ctx context.Context, onStatus func(string)) e
 		s.mu.Unlock()
 		return ErrSupervisorStopped
 	}
+	// A recorded process handle can outlive a crashed or stopped engine.
+	// Discard a completed generation before deciding whether startup is needed.
+	if s.waitCh != nil {
+		select {
+		case <-s.waitCh:
+			s.cmd = nil
+			s.owned = false
+			s.waitCh = nil
+		default:
+		}
+	}
 
 	// 若已有由 supervisor 管理且活着的进程，直接等待就绪
 	if s.cmd != nil && s.owned && s.cmd.Process != nil {

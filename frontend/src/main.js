@@ -115,6 +115,7 @@ let state = {
     theme: "system",
     acceleration_device: "auto",
     model_path: "",
+    gpu_layers: -1,
     ai_idle_minutes: 15,
     launch_at_login: false,
   },
@@ -146,7 +147,7 @@ function bindStateEvents() {
       ...state,
       ...next,
       config: next.config || state.config,
-      health: next.health || state.health,
+      health: next.health?.status === "ok" ? next.health : state.health,
       result: next.result || {},
       mode: nextMode,
       settings_open: Boolean(next.settings_open),
@@ -211,10 +212,7 @@ function bindStateEvents() {
       render({ forceShow: false })
       return
     }
-    const ready = Boolean(state.health?.translator_ready)
-    node.classList.toggle("is-ready", ready)
-    node.classList.toggle("is-loading", !ready)
-    textNode.textContent = ready ? "引擎就绪" : "正在启动"
+    updateEngineState()
   })
 }
 
@@ -449,7 +447,8 @@ function renderResult() {
 function renderMainWindow() {
   const isTranslateTab = state.active_tab === "translate"
   const isSettingsTab = state.active_tab === "settings"
-  const isReady = Boolean(state.health?.translator_ready)
+  const engine = enginePresentation(state.health)
+  const isReady = engine.ready
   const titleText = isTranslateTab ? "文本翻译" : "设置"
 
   app.innerHTML = `
@@ -478,7 +477,7 @@ function renderMainWindow() {
         </div>
         <div class="engine-state ${isReady ? "is-ready" : "is-loading"}" id="engineState" title="AI 引擎状态">
           <span class="state-dot"></span>
-          <span id="engineText">${isReady ? "引擎就绪" : "正在启动"}</span>
+          <span id="engineText">${engine.label}</span>
         </div>
         <div class="main-header-actions">
           ${
@@ -842,6 +841,9 @@ function renderSettingsViewHTML() {
           ${deviceOption("cpu", "cpu", "仅使用 CPU")}
         </div>
         ${renderCurrentDeviceBadge()}
+        <label class="field-label" for="gpuLayers">GPU 卸载层数</label>
+        <input class="number-input" id="gpuLayers" type="number" min="-1" max="999" step="1" value="${Number.isInteger(state.config.gpu_layers) ? state.config.gpu_layers : -1}" />
+        <p class="field-help">-1 为全部层，0 使用 CPU。大模型显存不足时可调小，例如 16；保存后重新加载。</p>
       </section>
 
       <div class="section-rule"></div>
@@ -1187,6 +1189,12 @@ async function saveSettings() {
   }
 
   if (next.model_path !== state.config.model_path) next.download_default_model = false
+  const gpuLayers = Number(document.querySelector("#gpuLayers")?.value ?? -1)
+  if (!Number.isInteger(gpuLayers) || gpuLayers < -1 || gpuLayers > 999) {
+    if (status) showStatus(status, "GPU 卸载层数须为 -1 到 999 的整数", "error")
+    return
+  }
+  next.gpu_layers = gpuLayers
 
   if (button) button.disabled = true
   if (status) showStatus(status, "正在保存...", "pending")
@@ -1368,20 +1376,31 @@ async function refreshHealth() {
   if (!window.go?.wailsui?.App) return
   try {
     const next = await State()
-    const ready = Boolean(next.health?.translator_ready)
-    state.health = next.health
+    if (next.health?.status === "ok") state.health = next.health
+    updateEngineState()
+  } catch {
+    // Keep the last confirmed state during a transient health-check failure.
+  }
+}
+
+function enginePresentation(health = {}) {
+  if (health.model_required) return { label: "待选择模型", ready: false }
+  if (health.translator_ready) return { label: health.busy ? "正在翻译" : "引擎就绪", ready: true }
+  if (String(health.translator_status || "").startsWith("翻译引擎初始化失败")) return { label: "模型加载失败", ready: false }
+  return { label: health.status === "ok" ? "正在加载" : "正在连接", ready: false }
+}
+
+function updateEngineState() {
+    const engine = enginePresentation(state.health)
     const notice = document.querySelector("#modelNotice")
-    if (notice) notice.hidden = !next.health?.model_required
+    if (notice) notice.hidden = !state.health?.model_required
     const node = document.querySelector("#engineState")
     const text = document.querySelector("#engineText")
     if (!node || !text) return
-    node.classList.toggle("is-ready", ready)
-    node.classList.toggle("is-loading", !ready)
-    text.textContent = ready ? "引擎就绪" : (next.health?.model_required ? "待选择模型" : "正在加载")
-    node.title = next.health?.translator_status || "AI 引擎状态"
-  } catch {
-    // The next interval retries
-  }
+    node.classList.toggle("is-ready", engine.ready)
+    node.classList.toggle("is-loading", !engine.ready)
+    text.textContent = engine.label
+    node.title = state.health?.translator_status || "AI 引擎状态"
 }
 
 async function copyResult(

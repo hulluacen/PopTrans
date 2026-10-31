@@ -388,6 +388,18 @@ def resolve_model_path() -> Tuple[str, bool]:
     return os.fspath(path), True
 
 
+def _read_gpu_layers() -> int:
+    try:
+        cfg_file = settings_path()
+        data = json.loads(cfg_file.read_text(encoding="utf-8")) if cfg_file.is_file() else {}
+        value = data.get("gpu_layers", -1)
+        if isinstance(value, int) and not isinstance(value, bool) and -1 <= value <= 999:
+            return value
+    except (OSError, ValueError, TypeError):
+        pass
+    return -1
+
+
 class Translator:
     """Hy-MT2-1.8B 翻译引擎封装（使用 llama-cpp-python）"""
 
@@ -398,6 +410,7 @@ class Translator:
         self.ready = False
         self._model = None
         self._setup_lock = threading.Lock()
+        self._inference_lock = threading.Lock()
         self._cache_lock = threading.Lock()
         self._translation_cache = OrderedDict()
         self._status_message = "翻译引擎未初始化"
@@ -619,6 +632,7 @@ class Translator:
         from llama_cpp import Llama, llama_supports_gpu_offload
 
         preference = _read_acceleration_preference()
+        gpu_layers = _read_gpu_layers()
         self._configured_device = preference
 
         can_gpu = False
@@ -633,7 +647,7 @@ class Translator:
             can_gpu,
         )
 
-        if preference == "cpu":
+        if preference == "cpu" or gpu_layers == 0:
             logger.info("用户配置使用 CPU 推理")
             self._model = Llama(
                 model_path=self._model_path,
@@ -666,16 +680,16 @@ class Translator:
 
         # 尝试使用 GPU 加载
         try:
-            logger.info("尝试启用显卡 (GPU) 加速加载模型 (n_gpu_layers=-1)...")
+            logger.info("尝试启用显卡 (GPU) 加速加载模型 (n_gpu_layers=%s)...", gpu_layers)
             self._model = Llama(
                 model_path=self._model_path,
                 n_ctx=MODEL_N_CTX,
-                n_gpu_layers=-1,
+                n_gpu_layers=gpu_layers,
                 n_threads=os.cpu_count(),
                 verbose=False,
             )
             self._actual_device = "gpu"
-            self._gpu_layers = -1
+            self._gpu_layers = gpu_layers
             self._status_message = "翻译引擎就绪 (GPU 加速)"
             logger.info("模型成功加载至 GPU")
         except Exception as gpu_err:
@@ -694,6 +708,10 @@ class Translator:
 
     def close(self):
         """Release the loaded llama.cpp model before application exit."""
+        with self._inference_lock:
+            self._close_locked()
+
+    def _close_locked(self):
         self.ready = False
         model = self._model
         self._model = None
@@ -730,6 +748,14 @@ class Translator:
         return None
 
     def translate(
+        self,
+        text: str,
+        target_lang: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        with self._inference_lock:
+            return self._translate_locked(text, target_lang)
+
+    def _translate_locked(
         self,
         text: str,
         target_lang: Optional[str] = None,
@@ -808,6 +834,14 @@ class Translator:
         text: str,
         target_lang: Optional[str] = None,
     ):
+        with self._inference_lock:
+            yield from self._chat_completion_stream_locked(text, target_lang)
+
+    def _chat_completion_stream_locked(
+        self,
+        text: str,
+        target_lang: Optional[str] = None,
+    ):
         """流式输出翻译结果的生成器"""
         if not self.ready:
             yield "翻译引擎未就绪"
@@ -841,12 +875,12 @@ class Translator:
                     **GENERATION_CONFIG,
                 )
 
-            for chunk in response_stream:
-                if "choices" in chunk and len(chunk["choices"]) > 0:
-                    delta = chunk["choices"][0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        yield content
+                for chunk in response_stream:
+                    if "choices" in chunk and len(chunk["choices"]) > 0:
+                        delta = chunk["choices"][0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
 
         except Exception as e:
             logger.exception(f"流式翻译失败: {text[:30]}...")

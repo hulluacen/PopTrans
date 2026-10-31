@@ -7,12 +7,31 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestCompletedEngineHandleDoesNotPreventRecovery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"status":"ok","translator_ready":true}`)
+	}))
+	defer server.Close()
+	s := NewSupervisor(t.TempDir(), NewClient(server.URL))
+	s.cmd = &exec.Cmd{Process: &os.Process{Pid: 1234}}
+	s.owned = true
+	s.waitCh = make(chan error)
+	close(s.waitCh)
+	if err := s.EnsureRunning(context.Background(), func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if s.cmd != nil || s.owned {
+		t.Fatal("stale process generation was retained")
+	}
+}
 
 func TestRestartCancelsOldStartupWithoutReportingAnEngineFailure(t *testing.T) {
 	var mu sync.Mutex

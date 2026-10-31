@@ -20,10 +20,13 @@ type Client struct {
 	httpClient *http.Client
 }
 
+const TranslationTimeout = 10 * time.Minute
+
 type Health struct {
 	Status           string         `json:"status"`
 	TranslatorReady  bool           `json:"translator_ready"`
 	ModelRequired    bool           `json:"model_required"`
+	Busy             bool           `json:"busy"`
 	TranslatorStatus string         `json:"translator_status"`
 	OCRLoaded        bool           `json:"ocr_loaded"`
 	DeviceInfo       map[string]any `json:"device_info,omitempty"`
@@ -64,12 +67,14 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 35 * time.Second,
+			Timeout: TranslationTimeout,
 		},
 	}
 }
 
 func (c *Client) Health(ctx context.Context) (Health, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 	var health Health
 	startedAt := time.Now()
 	log.Printf("backend health request start: %s/health", c.baseURL)
