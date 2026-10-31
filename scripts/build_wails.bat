@@ -48,7 +48,7 @@ if errorlevel 1 (
 )
 
 echo [2/3] Building Wails UI...
-"%WAILS_EXE%" build -clean
+"%WAILS_EXE%" build -clean -trimpath
 if errorlevel 1 (
   echo.
   echo Wails build failed.

@@ -26,7 +26,7 @@ if errorlevel 1 (
 
 echo [2/3] Building Go frontend...
 if not exist "%ROOT%\dist-go" mkdir "%ROOT%\dist-go"
-go build -ldflags "-H windowsgui" -o "%ROOT%\dist-go\PopTrans.exe" .\cmd\translate-go
+go build -trimpath -buildvcs=false -ldflags "-s -w -H windowsgui" -o "%ROOT%\dist-go\PopTrans.exe" .\cmd\translate-go
 if errorlevel 1 (
   del /Q "%RESOURCE_FILE%" >nul 2>nul
   echo.

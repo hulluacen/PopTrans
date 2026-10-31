@@ -30,9 +30,9 @@ if errorlevel 1 (
   set "PY_CMD=py -3.12"
 )
 
-%PY_CMD% -c "import llama_cpp; print('[信息] llama_cpp 版本:', llama_cpp.__version__, '| GPU 卸载支持:', getattr(llama_cpp, 'llama_supports_gpu_offload', lambda: False)())"
+%PY_CMD% -c "import sys, llama_cpp; supported = bool(getattr(llama_cpp, 'llama_supports_gpu_offload', lambda: False)()); print('[GPU]', supported); sys.exit(0 if supported else 1)"
 if errorlevel 1 (
-  echo 使用 %PY_CMD% 导入 llama_cpp 失败。
+  echo 当前 Python 环境缺少可用的 GPU 运行库，已停止构建。
   echo.
   pause
   popd

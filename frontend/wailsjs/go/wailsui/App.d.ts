@@ -16,6 +16,8 @@ export function Quit():Promise<void>;
 
 export function SaveConfig(arg1:config.Config):Promise<void>;
 
+export function SelectModel():Promise<string>;
+
 export function ShowResult(arg1:uidaemon.ResultPayload):Promise<void>;
 
 export function ShowSettings():Promise<void>;

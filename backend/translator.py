@@ -13,6 +13,7 @@ import json
 import time
 import threading
 import logging
+from pathlib import Path
 from collections import OrderedDict
 from typing import Optional, Tuple
 
@@ -369,6 +370,24 @@ def _read_acceleration_preference() -> str:
     return "auto"
 
 
+def resolve_model_path() -> Tuple[str, bool]:
+    """Return the selected GGUF and whether it was explicitly configured."""
+    cfg_file = settings_path()
+    data = json.loads(cfg_file.read_text(encoding="utf-8")) if cfg_file.is_file() else {}
+    selected = str(data.get("model_path") or "").strip()
+    if not selected:
+        return MODEL_PATH, False
+    path = Path(selected)
+    if not path.is_absolute():
+        path = application_dir() / path
+    if path.suffix.lower() != ".gguf" or not path.is_file():
+        raise ValueError("所选模型不存在或不是 GGUF 文件，请在设置中重新选择")
+    with path.open("rb") as model_file:
+        if model_file.read(4) != b"GGUF":
+            raise ValueError("所选文件不是有效的 GGUF 模型，请重新选择")
+    return os.fspath(path), True
+
+
 class Translator:
     """Hy-MT2-1.8B 翻译引擎封装（使用 llama-cpp-python）"""
 
@@ -385,6 +404,7 @@ class Translator:
         self._configured_device = "auto"
         self._actual_device = "cpu"
         self._gpu_layers = 0
+        self._model_path = MODEL_PATH
 
     @property
     def status(self) -> str:
@@ -425,8 +445,9 @@ class Translator:
 
         with self._setup_lock:
             try:
+                self._model_path, _ = resolve_model_path()
                 # 本地缺少模型时，自动从 HuggingFace 官网下载
-                if not os.path.exists(MODEL_PATH):
+                if not os.path.exists(self._model_path):
                     if _OFFLINE_MODE:
                         raise FileNotFoundError(
                             f"模型文件未找到: {MODEL_PATH}\n"
@@ -608,7 +629,7 @@ class Translator:
         if preference == "cpu":
             logger.info("用户配置使用 CPU 推理")
             self._model = Llama(
-                model_path=MODEL_PATH,
+                model_path=self._model_path,
                 n_ctx=MODEL_N_CTX,
                 n_gpu_layers=0,
                 n_threads=os.cpu_count(),
@@ -625,7 +646,7 @@ class Translator:
             else:
                 logger.info("当前环境未检测到 GPU 卸载支持，使用 CPU 推理")
             self._model = Llama(
-                model_path=MODEL_PATH,
+                model_path=self._model_path,
                 n_ctx=MODEL_N_CTX,
                 n_gpu_layers=0,
                 n_threads=os.cpu_count(),
@@ -640,7 +661,7 @@ class Translator:
         try:
             logger.info("尝试启用显卡 (GPU) 加速加载模型 (n_gpu_layers=-1)...")
             self._model = Llama(
-                model_path=MODEL_PATH,
+                model_path=self._model_path,
                 n_ctx=MODEL_N_CTX,
                 n_gpu_layers=-1,
                 n_threads=os.cpu_count(),
@@ -653,7 +674,7 @@ class Translator:
         except Exception as gpu_err:
             logger.warning("显卡 (GPU) 加载失败 (%s)，安全降级至纯 CPU 模式...", gpu_err)
             self._model = Llama(
-                model_path=MODEL_PATH,
+                model_path=self._model_path,
                 n_ctx=MODEL_N_CTX,
                 n_gpu_layers=0,
                 n_threads=os.cpu_count(),

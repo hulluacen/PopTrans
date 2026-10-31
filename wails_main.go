@@ -53,10 +53,10 @@ func main() {
 
 	err = wails.Run(&options.App{
 		Title:         "选中翻译",
-		Width:         458,
+		Width:         1060,
 		Height:        640,
 		StartHidden:   true,
-		DisableResize: true,
+		DisableResize: false,
 		Frameless:     true,
 		AlwaysOnTop:   false,
 		AssetServer: &assetserver.Options{

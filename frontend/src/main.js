@@ -22,12 +22,17 @@ import {
   X,
   Zap,
   Power,
+  Maximize2,
+  Minimize2,
+  FolderOpen,
 } from "lucide"
 import {
   HideWindow,
   SaveConfig,
   State,
   Translate,
+  SelectModel,
+  ShowSettings,
 } from "../wailsjs/go/wailsui/App"
 import {
   EventsOn,
@@ -37,6 +42,7 @@ import {
   WindowSetSize,
   WindowSetSystemDefaultTheme,
   WindowShow,
+  WindowToggleMaximise,
 } from "../wailsjs/runtime/runtime"
 
 const app = document.querySelector("#app")
@@ -63,6 +69,9 @@ const icons = {
   X,
   Zap,
   Power,
+  Maximize2,
+  Minimize2,
+  FolderOpen,
 }
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
 let healthTimer
@@ -104,6 +113,7 @@ let state = {
     server_port: 8989,
     theme: "system",
     acceleration_device: "auto",
+    model_path: "",
     ai_idle_minutes: 15,
     launch_at_login: false,
   },
@@ -463,6 +473,7 @@ function renderMainWindow() {
         }
         <div class="header-copy">
           <h1 id="mainTitle">${titleText}</h1>
+          <span class="workspace-subtitle">PopTrans · 本地离线翻译</span>
         </div>
         <div class="engine-state ${isReady ? "is-ready" : "is-loading"}" id="engineState" title="AI 引擎状态">
           <span class="state-dot"></span>
@@ -484,6 +495,9 @@ function renderMainWindow() {
           `
               : ""
           }
+          <button class="icon-button header-tool-button" id="maximizeBtn" type="button" title="最大化 / 还原" aria-label="最大化或还原窗口">
+            <i data-lucide="maximize-2"></i>
+          </button>
           <button class="icon-button close-button" id="mainCloseBtn" type="button" title="关闭窗口" aria-label="关闭窗口">
             <i data-lucide="x"></i>
           </button>
@@ -509,6 +523,9 @@ function renderMainWindow() {
   document
     .querySelector("#mainCloseBtn")
     ?.addEventListener("click", closeWindow)
+  document.querySelector("#maximizeBtn")?.addEventListener("click", () => {
+    if (window.runtime?.WindowToggleMaximise) WindowToggleMaximise()
+  })
 
   // Bind specific view events
   if (isTranslateTab) {
@@ -585,6 +602,9 @@ function renderTranslateViewHTML() {
           </div>
           <div class="card-actions">
             <span id="manualCopyStatus" class="result-copy-status" aria-live="polite"></span>
+            <button class="card-action-btn" id="focusResultBtn" type="button" title="展开译文阅读" aria-pressed="false">
+              <i data-lucide="maximize-2"></i><span>展开</span>
+            </button>
             <button
               class="icon-button result-copy-button"
               id="manualCopyBtn"
@@ -635,7 +655,7 @@ function renderResultBoxContent() {
   return `
     <div class="manual-placeholder">
       <div class="placeholder-icon"><i data-lucide="languages"></i></div>
-      <p>在上方输入文本并点击“立即翻译”或按 <span class="kbd-badge">Ctrl + Enter</span></p>
+      <p>输入文本后点击“立即翻译”或按 <span class="kbd-badge">Ctrl + Enter</span></p>
     </div>
   `
 }
@@ -646,6 +666,14 @@ function bindTranslateViewEvents() {
   const clearBtn = document.querySelector("#clearBtn")
   const translateBtn = document.querySelector("#doTranslateBtn")
   const copyBtn = document.querySelector("#manualCopyBtn")
+  document.querySelector("#focusResultBtn")?.addEventListener("click", (event) => {
+    const expanded = document.querySelector(".translate-workbench")?.classList.toggle("focus-result")
+    event.currentTarget.setAttribute("aria-pressed", String(Boolean(expanded)))
+    event.currentTarget.innerHTML = expanded
+      ? '<i data-lucide="minimize-2"></i><span>还原</span>'
+      : '<i data-lucide="maximize-2"></i><span>展开</span>'
+    createIcons({ icons, attrs: { "stroke-width": 1.8 } })
+  })
 
   if (textarea) {
     textarea.addEventListener("input", () => {
@@ -760,6 +788,20 @@ function updateManualResultBox() {
 function renderSettingsViewHTML() {
   return `
     <div class="settings-content">
+      <section class="settings-section" aria-labelledby="modelHeading">
+        <div class="section-heading">
+          <div class="section-icon"><i data-lucide="folder-open"></i></div>
+          <div><h2 id="modelHeading">翻译模型</h2><p>选择本地 GGUF 文件，无需移动或重命名</p></div>
+        </div>
+        <label class="field-label" for="modelPath">模型文件</label>
+        <div class="model-picker">
+          <input class="model-path-input" id="modelPath" value="${escapeHtml(state.config.model_path || "")}" placeholder="留空使用默认 Hy-MT2 模型" />
+          <button class="secondary-button" id="selectModelBtn" type="button">浏览…</button>
+          <button class="secondary-button" id="resetModelBtn" type="button">默认</button>
+        </div>
+        <p class="field-help" id="modelHelp" aria-live="polite">推荐 Hy-MT2 系列 GGUF；保存后自动重新加载。其他模型的翻译效果取决于模型兼容性。</p>
+      </section>
+      <div class="section-rule"></div>
       <section class="settings-section" aria-labelledby="themeHeading">
         <div class="section-heading">
           <div class="section-icon"><i data-lucide="sun"></i></div>
@@ -936,6 +978,22 @@ function renderSettingsFooterHTML() {
 }
 
 function bindSettingsViewEvents() {
+  document.querySelector("#selectModelBtn")?.addEventListener("click", async () => {
+    const button = document.querySelector("#selectModelBtn")
+    const help = document.querySelector("#modelHelp")
+    button.disabled = true
+    try {
+      const path = await SelectModel()
+      if (path) document.querySelector("#modelPath").value = path
+    } catch (error) {
+      help.textContent = readableError(error)
+    } finally {
+      button.disabled = false
+    }
+  })
+  document.querySelector("#resetModelBtn")?.addEventListener("click", () => {
+    document.querySelector("#modelPath").value = ""
+  })
   bindHotkeyInput(document.querySelector("#hotkeyDisplay"))
   bindHotkeyInput(document.querySelector("#ocrHotkeyDisplay"))
   document
@@ -1110,6 +1168,7 @@ async function saveSettings() {
       document.querySelector("#launchAtLogin")?.checked,
     ),
     server_port: serverPort,
+    model_path: document.querySelector("#modelPath")?.value.trim() || "",
     ai_idle_minutes: aiIdleMinutes,
     acceleration_device:
       document.querySelector('input[name="acceleration_device"]:checked')?.value || "auto",
@@ -1164,7 +1223,7 @@ function renderStartup() {
   if (window.runtime?.WindowSetSize) {
     if (isMain) {
       if (!mainWindowSized) {
-        WindowSetSize(458, 640)
+        WindowSetSize(1060, 640)
         if (window.runtime?.WindowCenter) WindowCenter()
         mainWindowSized = true
       }
@@ -1196,6 +1255,7 @@ function renderStartup() {
         <div class="startup-progress" aria-hidden="true">
           <span ${progress !== null ? `style="width: ${progress}%; animation: none;"` : ""}></span>
         </div>
+        <button class="startup-bg-btn" id="startupModelBtn" type="button">选择已有模型 / 打开设置</button>
         ${
           isDownloading
             ? `
@@ -1216,6 +1276,14 @@ function renderStartup() {
   document
     .querySelector("#startupDismissBtn")
     ?.addEventListener("click", dismissStartup)
+  document.querySelector("#startupModelBtn")?.addEventListener("click", async () => {
+    if (window.go?.wailsui?.App?.ShowSettings) await ShowSettings()
+    else {
+      state.startup_loading = false
+      state.active_tab = "settings"
+      render()
+    }
+  })
   document
     .querySelector("#startupBgBtn")
     ?.addEventListener("click", dismissStartup)

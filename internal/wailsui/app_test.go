@@ -1,6 +1,8 @@
 package wailsui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +56,32 @@ func TestSaveConfigRejectsInvalidServerPort(t *testing.T) {
 	err := app.SaveConfig(cfg)
 	if err == nil || !strings.Contains(err.Error(), "1024") {
 		t.Fatalf("expected port validation error, got %v", err)
+	}
+}
+
+func TestSaveConfigValidatesCustomModel(t *testing.T) {
+	dir := t.TempDir()
+	app := NewApp(dir, nil)
+	model := filepath.Join(dir, "custom name.gguf")
+	if err := os.WriteFile(model, []byte("GGUFtest"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default
+	cfg.ModelPath = "custom name.gguf"
+	if err := app.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(dir)
+	if err != nil || loaded.ModelPath != cfg.ModelPath {
+		t.Fatal("model path was not preserved")
+	}
+	cfg.ModelPath = "missing.gguf"
+	if err := app.SaveConfig(cfg); err == nil {
+		t.Fatal("expected missing model rejection")
+	}
+	loaded, _ = config.Load(dir)
+	if loaded.ModelPath != "custom name.gguf" {
+		t.Fatal("invalid selection replaced working settings")
 	}
 }
 

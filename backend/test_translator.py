@@ -1,10 +1,58 @@
 import unittest
+import json
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 from backend.translator import (
     Translator,
     build_translation_prompt,
     normalize_target_language,
+    resolve_model_path,
 )
+
+
+class ModelSelectionTests(unittest.TestCase):
+    def test_custom_name_outside_default_directory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            model = root / "翻译模型 Q8.gguf"
+            model.write_bytes(b"GGUFtest")
+            cfg = root / "settings.json"
+            cfg.write_text(json.dumps({"model_path": str(model)}), encoding="utf-8")
+            with patch("backend.translator.settings_path", return_value=cfg):
+                self.assertEqual(resolve_model_path(), (str(model), True))
+
+    def test_relative_model_is_resolved_from_application_directory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            model = root / "custom.gguf"
+            model.write_bytes(b"GGUFtest")
+            cfg = root / "settings.json"
+            cfg.write_text('{"model_path":"custom.gguf"}', encoding="utf-8")
+            with patch("backend.translator.settings_path", return_value=cfg), patch("backend.translator.application_dir", return_value=root):
+                self.assertEqual(resolve_model_path(), (str(model), True))
+
+    def test_missing_custom_model_does_not_trigger_default_download(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = Path(folder) / "settings.json"
+            cfg.write_text('{"model_path":"missing.gguf"}', encoding="utf-8")
+            engine = Translator()
+            with patch("backend.translator.settings_path", return_value=cfg), patch.object(engine, "_download_model") as download:
+                engine._setup_worker(None, None)
+                download.assert_not_called()
+                self.assertFalse(engine.ready)
+
+    def test_rejects_invalid_gguf_header(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            model = root / "invalid.gguf"
+            model.write_bytes(b"not a model")
+            cfg = root / "settings.json"
+            cfg.write_text(json.dumps({"model_path": str(model)}), encoding="utf-8")
+            with patch("backend.translator.settings_path", return_value=cfg):
+                with self.assertRaisesRegex(ValueError, "有效的 GGUF"):
+                    resolve_model_path()
 
 
 class FakeModel:

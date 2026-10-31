@@ -35,6 +35,7 @@ export namespace config {
 	    server_port: number;
 	    theme: string;
 	    acceleration_device: string;
+	    model_path: string;
 	    ui_idle_minutes: number;
 	    ai_idle_minutes: number;
 	    launch_at_login: boolean;
@@ -54,6 +55,7 @@ export namespace config {
 	        this.server_port = source["server_port"];
 	        this.theme = source["theme"];
 	        this.acceleration_device = source["acceleration_device"];
+	        this.model_path = source["model_path"];
 	        this.ui_idle_minutes = source["ui_idle_minutes"];
 	        this.ai_idle_minutes = source["ai_idle_minutes"];
 	        this.launch_at_login = source["launch_at_login"];

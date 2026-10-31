@@ -647,12 +647,13 @@ func (a *App) reloadSettings() {
 	loggingChanged := next.LoggingEnabled != a.cfg.LoggingEnabled
 	portChanged := next.ServerPort != a.cfg.ServerPort
 	deviceChanged := next.AccelerationDevice != a.cfg.AccelerationDevice
+	modelChanged := next.ModelPath != a.cfg.ModelPath
 	if err := a.applySettings(next); err != nil {
 		log.Printf("app apply reloaded settings failed: %v", err)
 		a.pushError("", err.Error())
 		return
 	}
-	if loggingChanged || portChanged || deviceChanged {
+	if loggingChanged || portChanged || deviceChanged || modelChanged {
 		go a.restartBackendForConfigChange(portChanged)
 	}
 }

@@ -26,6 +26,10 @@ export function SaveConfig(arg1) {
   return window['go']['wailsui']['App']['SaveConfig'](arg1);
 }
 
+export function SelectModel() {
+  return window['go']['wailsui']['App']['SelectModel']();
+}
+
 export function ShowResult(arg1) {
   return window['go']['wailsui']['App']['ShowResult'](arg1);
 }

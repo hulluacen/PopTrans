@@ -2,8 +2,10 @@ package wailsui
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -278,7 +280,9 @@ func positionResultWindow(ctx context.Context) {
 
 func positionSettingsWindow(ctx context.Context) {
 	runtime.WindowSetAlwaysOnTop(ctx, false)
-	runtime.WindowSetSize(ctx, 458, 640)
+	runtime.WindowUnmaximise(ctx)
+	runtime.WindowSetMinSize(ctx, 540, 480)
+	runtime.WindowSetSize(ctx, 1060, 640)
 	runtime.WindowCenter(ctx)
 }
 
@@ -327,11 +331,58 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	if err := config.ValidateServerPort(cfg.ServerPort); err != nil {
 		return err
 	}
+	if err := a.validateModelPath(cfg.ModelPath); err != nil {
+		return err
+	}
 	if err := config.Save(a.baseDir, cfg); err != nil {
 		return err
 	}
 	a.notifyConfigSaved()
 	return nil
+}
+
+func (a *App) validateModelPath(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if !strings.EqualFold(filepath.Ext(path), ".gguf") {
+		return errors.New("请选择 GGUF 模型文件")
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(a.baseDir, path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return errors.New("无法读取所选模型，请重新选择文件")
+	}
+	defer f.Close()
+	var header [4]byte
+	if n, _ := f.Read(header[:]); n != 4 || string(header[:]) != "GGUF" {
+		return errors.New("所选文件不是有效的 GGUF 模型")
+	}
+	return nil
+}
+
+// SelectModel opens the native file picker without saving until the user confirms settings.
+func (a *App) SelectModel() (string, error) {
+	if a.ctx == nil {
+		return "", context.Canceled
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "选择本地翻译模型",
+		Filters: []runtime.FileFilter{{DisplayName: "GGUF 模型 (*.gguf)", Pattern: "*.gguf"}},
+	})
+	if err != nil || path == "" {
+		return path, err
+	}
+	if err := a.validateModelPath(path); err != nil {
+		return "", err
+	}
+	// Keep models inside the application directory portable.
+	if rel, err := filepath.Rel(a.baseDir, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return rel, nil
+	}
+	return path, nil
 }
 
 func (a *App) Translate(text string) (TranslateResult, error) {
@@ -474,6 +525,7 @@ func (a *App) ShowSettings() error {
 	a.mode = "settings"
 	a.visible = true
 	a.settingsOpen = true
+	a.startupLoading = false
 	a.cancelIdleExitLocked()
 	a.mu.Unlock()
 
@@ -494,6 +546,7 @@ func (a *App) ShowTranslate() error {
 	a.mode = "translate"
 	a.visible = true
 	a.settingsOpen = true
+	a.startupLoading = false
 	a.cancelIdleExitLocked()
 	a.mu.Unlock()
 
@@ -528,6 +581,8 @@ func (a *App) ShowResult(payload uidaemon.ResultPayload) error {
 	// Only place the popup on first show. Subsequent loading/result updates must
 	// not chase the cursor or reset size, which causes a visible jump.
 	if !wasVisibleResult {
+		runtime.WindowUnmaximise(a.ctx)
+		runtime.WindowSetMinSize(a.ctx, 320, 180)
 		positionResultWindow(a.ctx)
 		runtime.WindowSetSize(a.ctx, 425, 300)
 		runtime.WindowUnminimise(a.ctx)
