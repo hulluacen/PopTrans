@@ -67,11 +67,12 @@ type App struct {
 	statusMu sync.Mutex
 	status   string
 
-	resultMu sync.Mutex
-	source   string
-	result   string
-	lastErr  string
-	busy     bool
+	resultMu         sync.Mutex
+	source           string
+	result           string
+	lastErr          string
+	lastGlossaryInfo *backend.GlossaryInfo
+	busy             bool
 
 	backendIdleMu      sync.Mutex
 	backendIdleUsers   int
@@ -362,6 +363,7 @@ func (a *App) handleTranslate() {
 		defer cancel()
 
 		var result string
+		var glossaryInfo backend.GlossaryInfo
 		err = a.withBackend(ctx, func(status string) {
 			if status == "" {
 				status = "等待模型加载中..."
@@ -369,7 +371,7 @@ func (a *App) handleTranslate() {
 			a.setStatus(status)
 		}, func(reqCtx context.Context) error {
 			var translateErr error
-			result, translateErr = a.client.Translate(reqCtx, text)
+			result, glossaryInfo, translateErr = a.client.TranslateWithInfo(reqCtx, text)
 			return translateErr
 		})
 		if err != nil {
@@ -381,7 +383,7 @@ func (a *App) handleTranslate() {
 
 		log.Printf("app translate success: result_chars=%d preview=%q", len(result), previewText(result, 120))
 		a.setStatus("就绪")
-		a.pushResult(text, result)
+		a.pushResult(text, result, glossaryInfo)
 	}()
 }
 
@@ -461,6 +463,7 @@ func (a *App) handleOCRSelection(rect win.Rect) {
 
 		var text string
 		var translation string
+		var glossaryInfo backend.GlossaryInfo
 		err = a.withBackend(ctx, func(status string) {
 			if status == "" {
 				status = "等待模型加载中..."
@@ -483,7 +486,7 @@ func (a *App) handleOCRSelection(rect win.Rect) {
 			a.pushLoading(text)
 			a.setStatus("正在翻译 OCR 文本...")
 
-			translation, ocrErr = a.client.Translate(reqCtx, text)
+			translation, glossaryInfo, ocrErr = a.client.TranslateWithInfo(reqCtx, text)
 			if ocrErr != nil {
 				return ocrErr
 			}
@@ -514,7 +517,7 @@ func (a *App) handleOCRSelection(rect win.Rect) {
 
 		log.Printf("app ocr translate success: source_chars=%d result_chars=%d source_preview=%q result_preview=%q", len(text), len(translation), previewText(text, 80), previewText(translation, 80))
 		a.setStatus("就绪")
-		a.pushResult(text, translation)
+		a.pushResult(text, translation, glossaryInfo)
 	}()
 }
 
@@ -524,11 +527,16 @@ func (a *App) finishBusy() {
 	a.resultMu.Unlock()
 }
 
-func (a *App) pushResult(source, result string) {
+func (a *App) pushResult(source, result string, info ...backend.GlossaryInfo) {
 	a.resultMu.Lock()
 	a.source = source
 	a.result = result
 	a.lastErr = ""
+	a.lastGlossaryInfo = nil
+	if len(info) > 0 {
+		value := info[0]
+		a.lastGlossaryInfo = &value
+	}
 	a.resultMu.Unlock()
 	log.Printf("app push result: source_chars=%d result_chars=%d", len(source), len(result))
 	win.PostMessage(a.hwnd, wmTranslateDone, 0, 0)
@@ -960,13 +968,20 @@ func (a *App) showLoading() {
 }
 
 func (a *App) showWailsResult(source, result, errMsg string, loading bool) error {
+	a.resultMu.Lock()
+	var info *backend.GlossaryInfo
+	if !loading && errMsg == "" {
+		info = a.lastGlossaryInfo
+	}
+	a.resultMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	return a.ui.ShowResult(ctx, uidaemon.ResultPayload{
-		Source:  source,
-		Result:  result,
-		Error:   errMsg,
-		Loading: loading,
+		GlossaryInfo: info,
+		Source:       source,
+		Result:       result,
+		Error:        errMsg,
+		Loading:      loading,
 	})
 }
 

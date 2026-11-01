@@ -1,10 +1,93 @@
 export namespace backend {
 
+	export class GlossaryCandidate {
+	    target: string;
+	    context: string;
+	    library?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new GlossaryCandidate(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.target = source["target"];
+	        this.context = source["context"];
+	        this.library = source["library"];
+	    }
+	}
+	export class GlossaryGroup {
+	    source: string;
+	    candidates: GlossaryCandidate[];
+
+	    static createFrom(source: any = {}) {
+	        return new GlossaryGroup(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.candidates = this.convertValues(source["candidates"], GlossaryCandidate);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class GlossaryInfo {
+	    enabled: boolean;
+	    groups: GlossaryGroup[];
+	    omitted: number;
+
+	    static createFrom(source: any = {}) {
+	        return new GlossaryInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.groups = this.convertValues(source["groups"], GlossaryGroup);
+	        this.omitted = source["omitted"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Health {
 	    status: string;
 	    translator_ready: boolean;
 	    model_required: boolean;
 	    busy: boolean;
+	    glossary_enabled: boolean;
 	    translator_status: string;
 	    ocr_loaded: boolean;
 	    device_info?: Record<string, any>;
@@ -19,6 +102,7 @@ export namespace backend {
 	        this.translator_ready = source["translator_ready"];
 	        this.model_required = source["model_required"];
 	        this.busy = source["busy"];
+	        this.glossary_enabled = source["glossary_enabled"];
 	        this.translator_status = source["translator_status"];
 	        this.ocr_loaded = source["ocr_loaded"];
 	        this.device_info = source["device_info"];
@@ -69,6 +153,42 @@ export namespace config {
 	        this.launch_at_login = source["launch_at_login"];
 	    }
 	}
+	export class GlossaryLibrary {
+	    id: string;
+	    name: string;
+	    enabled: boolean;
+	    entries: GlossaryEntry[];
+
+	    static createFrom(source: any = {}) {
+	        return new GlossaryLibrary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.enabled = source["enabled"];
+	        this.entries = this.convertValues(source["entries"], GlossaryEntry);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class GlossaryEntry {
 	    source: string;
 	    target: string;
@@ -92,9 +212,12 @@ export namespace config {
 	    }
 	}
 	export class Glossary {
+	    revision?: string;
 	    enabled: boolean;
 	    domain: string;
 	    entries: GlossaryEntry[];
+	    local_enabled?: boolean;
+	    libraries?: GlossaryLibrary[];
 
 	    static createFrom(source: any = {}) {
 	        return new Glossary(source);
@@ -102,9 +225,12 @@ export namespace config {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.revision = source["revision"];
 	        this.enabled = source["enabled"];
 	        this.domain = source["domain"];
 	        this.entries = this.convertValues(source["entries"], GlossaryEntry);
+	        this.local_enabled = source["local_enabled"];
+	        this.libraries = this.convertValues(source["libraries"], GlossaryLibrary);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -126,11 +252,13 @@ export namespace config {
 		}
 	}
 
+
 }
 
 export namespace uidaemon {
 
 	export class ResultPayload {
+	    glossary_info?: backend.GlossaryInfo;
 	    source: string;
 	    result: string;
 	    error: string;
@@ -142,11 +270,30 @@ export namespace uidaemon {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.glossary_info = this.convertValues(source["glossary_info"], backend.GlossaryInfo);
 	        this.source = source["source"];
 	        this.result = source["result"];
 	        this.error = source["error"];
 	        this.loading = source["loading"];
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Status {
 	    ready: boolean;
@@ -174,6 +321,7 @@ export namespace uidaemon {
 export namespace wailsui {
 
 	export class ResultView {
+	    glossary_info?: backend.GlossaryInfo;
 	    source: string;
 	    result: string;
 	    error: string;
@@ -185,13 +333,33 @@ export namespace wailsui {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.glossary_info = this.convertValues(source["glossary_info"], backend.GlossaryInfo);
 	        this.source = source["source"];
 	        this.result = source["result"];
 	        this.error = source["error"];
 	        this.loading = source["loading"];
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class TranslateResult {
+	    glossary_info: backend.GlossaryInfo;
 	    source: string;
 	    result: string;
 
@@ -201,9 +369,28 @@ export namespace wailsui {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.glossary_info = this.convertValues(source["glossary_info"], backend.GlossaryInfo);
 	        this.source = source["source"];
 	        this.result = source["result"];
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class UIState {
 	    config: config.Config;

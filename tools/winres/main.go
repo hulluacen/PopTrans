@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/tc-hib/winres"
+	"github.com/tc-hib/winres/version"
 )
 
 func main() {
@@ -39,6 +40,15 @@ func main() {
 	}
 
 	resources := winres.ResourceSet{}
+	vi := version.Info{
+		FileVersion:    [4]uint16{1, 4, 1, 0},
+		ProductVersion: [4]uint16{1, 4, 1, 0},
+	}
+	vi.Set(0, version.ProductName, "PopTrans")
+	vi.Set(0, version.FileDescription, "PopTrans offline translation")
+	vi.Set(0, version.FileVersion, "1.4.1")
+	vi.Set(0, version.ProductVersion, "1.4.1")
+	resources.SetVersionInfo(vi)
 	if err := resources.SetIcon(winres.RT_ICON, icon); err != nil {
 		exitf("set icon resource: %v", err)
 	}

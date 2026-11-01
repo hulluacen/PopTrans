@@ -1,4 +1,6 @@
 import "./styles.css"
+import packageInfo from "../package.json"
+import { mountGlossaryManager } from "./glossary-manager"
 import {
   createIcons,
   ArrowLeft,
@@ -36,6 +38,8 @@ import {
   DownloadDefaultModel,
   SaveGlossary,
   GetGlossary,
+  OpenGlossary,
+  FinishGlossaryClose,
 } from "../wailsjs/go/wailsui/App"
 import {
   EventsOn,
@@ -46,6 +50,7 @@ import {
   WindowSetSystemDefaultTheme,
   WindowShow,
   WindowToggleMaximise,
+  WindowSetMinSize,
 } from "../wailsjs/runtime/runtime"
 
 const app = document.querySelector("#app")
@@ -78,6 +83,7 @@ const icons = {
 }
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
 let healthTimer
+let glossaryManagerMounted = false
 let resultSignature = ""
 let lastResultHeight = 0
 let windowShown = false
@@ -123,7 +129,6 @@ let state = {
   },
   health: {},
   glossary: { enabled: false, domain: "", entries: [] },
-  glossaryDraft: null,
   manualTranslate: {
     sourceText: "",
     translatedText: "",
@@ -257,6 +262,7 @@ async function loadState() {
 
 function previewState() {
   const modeParam = new URLSearchParams(window.location.search).get("mode")
+  if (modeParam === "glossary") return { ...state, mode: "glossary", startup_loading: false }
   if (modeParam === "result") {
     return {
       ...state,
@@ -291,6 +297,23 @@ function previewState() {
 }
 
 function render(options = {}) {
+  if (state.mode === "glossary") {
+    if (!glossaryManagerMounted) {
+      glossaryManagerMounted = true
+      mountGlossaryManager(app, {
+        get: async () => window.go?.wailsui?.App ? await GetGlossary() : state.glossary,
+        save: async glossary => {
+          if (window.go?.wailsui?.App) return await SaveGlossary(glossary)
+          state.glossary = glossary; return glossary
+        },
+        close: () => window.go?.wailsui?.App ? FinishGlossaryClose() : window.close(),
+        onClose: callback => window.runtime?.EventsOn ? EventsOn("glossary:request-close", callback) : null,
+      })
+      if (window.runtime?.WindowSetMinSize) WindowSetMinSize(800, 520)
+      showWindowAfterRender()
+    }
+    return
+  }
   if (startupDismissed && state.startup_loading) {
     return
   }
@@ -432,6 +455,7 @@ function renderResult() {
         `
         }
       </section>
+      ${!isLoading ? renderGlossaryInfo(result.glossary_info) : ""}
       ${
         hasSource
           ? `
@@ -446,6 +470,7 @@ function renderResult() {
     `
   }
 
+  content.querySelectorAll("details").forEach(node=>node.addEventListener("toggle",fitResultWindow))
   requestAnimationFrame(fitResultWindow)
 }
 
@@ -478,13 +503,15 @@ function renderMainWindow() {
         }
         <div class="header-copy">
           <h1 id="mainTitle">${titleText}</h1>
-          <span class="workspace-subtitle">PopTrans · 本地离线翻译</span>
+          <span class="workspace-subtitle">PopTrans ${packageInfo.version} · 本地离线翻译</span>
         </div>
         <div class="engine-state ${isReady ? "is-ready" : "is-loading"}" id="engineState" title="AI 引擎状态">
           <span class="state-dot"></span>
           <span id="engineText">${engine.label}</span>
         </div>
         <div class="main-header-actions">
+          <button class="icon-button glossary-entry-button" id="openGlossaryBtn" type="button" title="在独立窗口管理术语库">术语库</button>
+          <button class="icon-button glossary-state-button" id="toggleGlossaryBtn" type="button" title="切换术语参考；打开术语库窗口可编辑">${(state.health?.glossary_enabled ?? state.glossary?.enabled) ? "术语开" : "术语关"}</button>
           ${
             isTranslateTab
               ? `
@@ -527,9 +554,6 @@ function renderMainWindow() {
     render()
   })
   document.querySelector("#openSettingsBtn")?.addEventListener("click", async () => {
-    if (!state.glossaryDraft && window.go?.wailsui?.App?.GetGlossary) {
-      try { state.glossary = await GetGlossary() } catch { /* Preserve current glossary view. */ }
-    }
     state.active_tab = "settings"
     render()
   })
@@ -538,6 +562,23 @@ function renderMainWindow() {
     ?.addEventListener("click", closeWindow)
   document.querySelector("#maximizeBtn")?.addEventListener("click", () => {
     if (window.runtime?.WindowToggleMaximise) WindowToggleMaximise()
+  })
+  document.querySelector("#openGlossaryBtn")?.addEventListener("click", async () => {
+    try {
+      if (window.go?.wailsui?.App) await OpenGlossary()
+      else window.open("?mode=glossary", "poptrans-glossary", "width=1060,height=640")
+    } catch (error) { const button=document.querySelector("#openGlossaryBtn");button.textContent="打开失败";button.title=readableError(error) }
+  })
+  document.querySelector("#toggleGlossaryBtn")?.addEventListener("click", async event => {
+    const button=event.currentTarget;button.disabled=true
+    try {
+      const current=window.go?.wailsui?.App ? await GetGlossary() : state.glossary
+      const next={...current,enabled:!current.enabled}
+      state.glossary=window.go?.wailsui?.App ? await SaveGlossary(next) : next
+      state.health.glossary_enabled=state.glossary.enabled
+      updateEngineState()
+    } catch(error){button.textContent="术语保存失败";button.title=readableError(error)}
+    finally{button.disabled=false}
   })
   document.querySelector("#noticeSelectModelBtn")?.addEventListener("click", chooseStartupModel)
   document.querySelector("#noticeDownloadModelBtn")?.addEventListener("click", requestModelDownload)
@@ -664,7 +705,7 @@ function renderResultBoxContent() {
   }
 
   if (translatedText && translatedText.trim()) {
-    return `<div class="result-text translated-text manual-translated-text" tabindex="0">${escapeHtml(translatedText.trim())}</div>`
+    return `<div class="result-text translated-text manual-translated-text" tabindex="0">${escapeHtml(translatedText.trim())}</div>${renderGlossaryInfo(state.manualTranslate.glossaryInfo)}`
   }
 
   return `
@@ -744,6 +785,7 @@ async function handleManualTranslate() {
 
   state.manualTranslate.isLoading = true
   state.manualTranslate.error = ""
+  state.manualTranslate.glossaryInfo = null
   updateManualResultBox()
 
   const translateBtn = document.querySelector("#doTranslateBtn")
@@ -758,6 +800,7 @@ async function handleManualTranslate() {
     if (window.go?.wailsui?.App?.Translate) {
       const res = await Translate(text)
       resultText = (res?.result || "").trim()
+      state.manualTranslate.glossaryInfo = res?.glossary_info
     } else {
       // Mock for Vite local preview
       await new Promise((resolve) => setTimeout(resolve, 600))
@@ -803,7 +846,6 @@ function updateManualResultBox() {
 function renderSettingsViewHTML() {
   return `
     <div class="settings-content">
-      ${renderGlossaryHTML()}
       <section class="settings-section" aria-labelledby="modelHeading">
         <div class="section-heading">
           <div class="section-icon"><i data-lucide="folder-open"></i></div>
@@ -998,7 +1040,6 @@ function renderSettingsFooterHTML() {
 }
 
 function bindSettingsViewEvents() {
-  bindGlossaryEvents()
   document.querySelector("#downloadModelBtn")?.addEventListener("click", requestModelDownload)
   document.querySelector("#selectModelBtn")?.addEventListener("click", async () => {
     const button = document.querySelector("#selectModelBtn")
@@ -1029,98 +1070,6 @@ function bindSettingsViewEvents() {
     render()
   })
   document.querySelector("#saveBtn")?.addEventListener("click", saveSettings)
-}
-
-function renderGlossaryHTML() {
-  const glossary = state.glossaryDraft || state.glossary || { enabled: false, domain: "", entries: [] }
-  return `
-    <section class="settings-section" aria-labelledby="glossaryHeading">
-      <div class="section-heading with-toggle">
-        <div class="section-icon"><i data-lucide="languages"></i></div>
-        <div><h2 id="glossaryHeading">本地术语参考</h2><p>仅提供语境参考，由模型判断含义，不强制替换译文</p></div>
-        <label class="switch" title="启用术语参考"><input id="glossaryEnabled" type="checkbox" ${glossary.enabled ? "checked" : ""} /><span class="switch-track"><span class="switch-thumb"></span></span></label>
-      </div>
-      <label class="field-label" for="glossaryDomain">当前领域</label>
-      <input class="model-path-input" id="glossaryDomain" maxlength="80" value="${escapeHtml(glossary.domain || "")}" placeholder="例如：西门子／卷绕，或网页开发" />
-      <p class="field-help">当前领域用于辅助判断。相同单词在其他语境中仍可采用不同译法；关闭开关即使用普通翻译。</p>
-      <div id="glossaryRows">${(glossary.entries || []).map((entry, index) => `
-        <div class="glossary-row" data-index="${index}">
-          <div class="glossary-row-tools">
-            <label><input data-field="enabled" type="checkbox" ${entry.enabled ? "checked" : ""} /> 启用</label>
-            <select class="model-path-input" data-field="direction" aria-label="翻译方向"><option value="en-zh" ${entry.target_lang === "zh" ? "selected" : ""}>英 → 中</option><option value="zh-en" ${entry.target_lang === "en" ? "selected" : ""}>中 → 英</option></select>
-            <button class="card-action-btn" data-remove-term="${index}" type="button">删除</button>
-          </div>
-          <div class="glossary-term-pair">
-            <label>原词<input class="model-path-input" data-field="source" maxlength="80" value="${escapeHtml(entry.source || "")}" /></label>
-            <label>参考译法<input class="model-path-input" data-field="target" maxlength="80" value="${escapeHtml(entry.target || "")}" /></label>
-          </div>
-          <label>适用语境／例外<input class="model-path-input" data-field="context" maxlength="160" value="${escapeHtml(entry.context || "")}" placeholder="例如：仅用于连续料带输送，网页语境采用其他含义" /></label>
-        </div>`).join("")}</div>
-      <div class="glossary-actions">
-        <button class="secondary-button" id="addTermBtn" type="button">新增术语</button>
-        <button class="secondary-button" id="saveGlossaryBtn" type="button">保存术语表</button>
-        <span class="action-status" id="glossaryStatus" aria-live="polite">单独保存，立即生效，无需重启模型</span>
-      </div>
-    </section><div class="section-rule"></div>`
-}
-
-function readGlossaryForm() {
-  return {
-    enabled: Boolean(document.querySelector("#glossaryEnabled")?.checked),
-    domain: document.querySelector("#glossaryDomain")?.value.trim() || "",
-    entries: [...document.querySelectorAll(".glossary-row")].map(row => {
-      const [source_lang, target_lang] = row.querySelector('[data-field="direction"]').value.split("-")
-      return {
-        source: row.querySelector('[data-field="source"]').value.trim(),
-        target: row.querySelector('[data-field="target"]').value.trim(),
-        context: row.querySelector('[data-field="context"]').value.trim(),
-        source_lang, target_lang, enabled: row.querySelector('[data-field="enabled"]').checked,
-      }
-    }),
-  }
-}
-
-function bindGlossaryEvents() {
-  document.querySelectorAll('#glossaryRows input, #glossaryRows select, #glossaryEnabled, #glossaryDomain').forEach(input => {
-    input.addEventListener("input", () => { state.glossaryDraft = readGlossaryForm() })
-    input.addEventListener("change", () => { state.glossaryDraft = readGlossaryForm() })
-  })
-  const refreshRows = () => {
-    const section = document.querySelector('[aria-labelledby="glossaryHeading"]')
-    section.outerHTML = renderGlossaryHTML().replace(/<div class="section-rule"><\/div>$/, "")
-    bindGlossaryEvents()
-    createIcons({ icons, attrs: { "stroke-width": 1.8 } })
-  }
-  document.querySelector("#addTermBtn")?.addEventListener("click", () => {
-    state.glossaryDraft = readGlossaryForm()
-    state.glossaryDraft.entries.push({ source: "", target: "", context: "", source_lang: "en", target_lang: "zh", enabled: true })
-    refreshRows()
-  })
-  document.querySelectorAll("[data-remove-term]").forEach(button => button.addEventListener("click", () => {
-    state.glossaryDraft = readGlossaryForm()
-    state.glossaryDraft.entries.splice(Number(button.dataset.removeTerm), 1)
-    refreshRows()
-  }))
-  document.querySelector("#saveGlossaryBtn")?.addEventListener("click", async () => {
-    const button = document.querySelector("#saveGlossaryBtn")
-    const status = document.querySelector("#glossaryStatus")
-    const glossary = readGlossaryForm()
-    if (glossary.entries.some(entry => !entry.source || !entry.target)) {
-      showStatus(status, "请填写原词与参考译法，或删除空白条目", "error")
-      return
-    }
-    button.disabled = true
-    try {
-      await SaveGlossary(glossary)
-      state.glossary = glossary
-      state.glossaryDraft = null
-      showStatus(status, "已保存，下次翻译生效", "success")
-    } catch (error) {
-      showStatus(status, readableError(error), "error")
-    } finally {
-      button.disabled = false
-    }
-  })
 }
 
 function themeOption(value, icon, label) {
@@ -1493,6 +1442,8 @@ function enginePresentation(health = {}) {
 }
 
 function updateEngineState() {
+    const glossaryButton = document.querySelector("#toggleGlossaryBtn")
+    if (glossaryButton) glossaryButton.textContent = (state.health?.glossary_enabled ?? state.glossary?.enabled) ? "术语开" : "术语关"
     const engine = enginePresentation(state.health)
     const notice = document.querySelector("#modelNotice")
     if (notice) notice.hidden = !state.health?.model_required
@@ -1503,6 +1454,16 @@ function updateEngineState() {
     node.classList.toggle("is-loading", !engine.ready)
     text.textContent = engine.label
     node.title = state.health?.translator_status || "AI 引擎状态"
+}
+
+function renderGlossaryInfo(info) {
+  if (!info) return ""
+  if (!info.enabled) return '<div class="glossary-result-note">本次未启用术语参考</div>'
+  const groups=info.groups || []
+  return `<details class="glossary-result-info"><summary>本次提供 ${groups.length} 组术语参考${info.omitted ? ` · ${info.omitted} 组因长度上限未提供` : ""}</summary>
+    <p>这里列出发送给模型的候选，不代表模型一定采用。含义由模型结合句子判断。</p>
+    ${groups.map(group=>`<div><strong>${escapeHtml(group.source)}</strong><ul>${(group.candidates||[]).map(candidate=>`<li>${escapeHtml(candidate.target)}${candidate.library ? ` <span>［${escapeHtml(candidate.library)}］</span>` : ""}${candidate.context ? ` <span>（${escapeHtml(candidate.context)}）</span>` : ""}</li>`).join("")}</ul></div>`).join("")}
+  </details>`
 }
 
 async function copyResult(

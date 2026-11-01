@@ -64,8 +64,11 @@ dist-go/
 .npmhome/
 .wails-template/
 .pyinstaller/
+.pyinstaller-*/
 build-ai/
 dist-ai/
+dist-ai-*/
+build-ai-*/
 .icon-probe/
 frontend/node_modules/
 translate-go.exe

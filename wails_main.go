@@ -24,6 +24,17 @@ func main() {
 	win.EnableDPIAwareness()
 
 	baseDir := config.ResolveBaseDir()
+	glossaryMode := hasArg(os.Args, "--glossary")
+	if glossaryMode {
+		release, primary, err := wailsui.AcquireGlossaryWindow(baseDir)
+		if err != nil {
+			return
+		}
+		defer release()
+		if !primary {
+			return
+		}
+	}
 	configureWailsLogging(baseDir)
 
 	daemonMode := hasArg(os.Args, "--daemon")
@@ -50,9 +61,13 @@ func main() {
 		BackdropType:         wailswindows.Acrylic,
 	}
 	app := wailsui.NewApp(baseDir, os.Args)
+	title := "选中翻译"
+	if glossaryMode {
+		title = "PopTrans 术语库"
+	}
 
 	err = wails.Run(&options.App{
-		Title:         "选中翻译",
+		Title:         title,
 		Width:         1060,
 		Height:        640,
 		StartHidden:   true,
@@ -65,6 +80,7 @@ func main() {
 		BackgroundColour: background,
 		OnStartup:        app.Startup,
 		OnShutdown:       app.Shutdown,
+		OnBeforeClose:    app.BeforeClose,
 		Windows:          windowsOptions,
 		Bind: []interface{}{
 			app,

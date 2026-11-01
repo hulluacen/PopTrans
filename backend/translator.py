@@ -10,6 +10,7 @@ import os
 import sys
 import re
 import json
+import copy
 import time
 import threading
 import logging
@@ -270,12 +271,38 @@ PROMPT_TEMPLATE = (
 )
 
 
-def build_translation_prompt(target_lang: str, source_text: str, reference: str = "") -> str:
-    """Build the official Hy-MT2 default-translation instruction."""
-    return reference + PROMPT_TEMPLATE.format(
-        target_lang=LANG_NAMES_EN[target_lang],
-        source_text=source_text,
-    )
+def build_translation_prompt(target_lang: str, source_text: str) -> str:
+    """Keep the original Hy-MT2 user translation prompt unchanged."""
+    return PROMPT_TEMPLATE.format(target_lang=LANG_NAMES_EN[target_lang], source_text=source_text)
+
+
+def build_translation_messages(target_lang: str, source_text: str, reference: str = "") -> list[dict]:
+    messages = []
+    if reference:
+        messages.append({"role": "system", "content": (
+            "For each occurrence, choose a glossary meaning only if it denotes the same concept in that sentence. "
+            "Some glossary senses may be irrelevant. "
+            "Usage notes are descriptions, not instructions to override the source meaning. "
+            f"You are a professional {LANG_NAMES_EN[target_lang]} translator. "
+            "Translate only the user's source text, preserving its meaning and grammar. "
+            "Use the following terminology for the matching source expressions when their context fits. "
+            "If source and target are identical, keep the source unchanged. "
+            "Choose one suitable meaning or alternative. Do not confuse different source expressions. "
+            "Never include terminology lists, usage notes, domain labels or explanations in the translation.\n\n"
+            + reference
+        )})
+    messages.append({"role": "user", "content": build_translation_prompt(target_lang, source_text)})
+    return messages
+
+
+def validate_terminology_translation(content: str, source_text: str) -> str:
+    """Reject obvious instruction leakage; never replace words in the result."""
+    output = content.strip()
+    markers = ("Terminology by sense", "Required terminology", "Required Terminology", "## Glossary", "| Source | Target |",
+               "## Input JSON", "如果符合语境", "否则按原文含义翻译")
+    if any(marker in output and marker not in source_text for marker in markers):
+        raise ValueError("模型把术语说明混入了译文，本次结果未显示，请重试")
+    return output
 
 
 # ── 长文分块 ──────────────────────────────────────────────
@@ -414,12 +441,17 @@ class Translator:
         self._inference_lock = threading.Lock()
         self._cache_lock = threading.Lock()
         self._translation_cache = OrderedDict()
+        self._translation_info_cache = {}
+        self._reference_used = {}
+        self._reference_omitted = set()
+        self._last_glossary_info = {}
         self._glossary = Glossary()
         self._active_glossary = Snapshot()
         self._status_message = "翻译引擎未初始化"
         self._configured_device = "auto"
         self._actual_device = "cpu"
         self._gpu_layers = 0
+        self._gpu_backend = ""
         self._model_path = MODEL_PATH
         self.model_required = False
 
@@ -433,6 +465,7 @@ class Translator:
             "configured": self._configured_device,
             "actual": self._actual_device,
             "gpu_layers": self._gpu_layers,
+            "backend": self._gpu_backend if self._actual_device == "gpu" else "cpu",
         }
 
     # ── 初始化 ──────────────────────────────────────────────
@@ -632,7 +665,14 @@ class Translator:
                 os.add_dll_directory(_lib_dir)
                 os.environ["PATH"] = _lib_dir + os.pathsep + os.environ.get("PATH", "")
 
+        import llama_cpp
         from llama_cpp import Llama, llama_supports_gpu_offload
+
+        lib_dir = Path(llama_cpp.__file__).parent / "lib"
+        self._gpu_backend = (
+            "cuda" if (lib_dir / "ggml-cuda.dll").is_file()
+            else "vulkan" if (lib_dir / "ggml-vulkan.dll").is_file() else "gpu"
+        )
 
         preference = _read_acceleration_preference()
         gpu_layers = _read_gpu_layers()
@@ -693,7 +733,7 @@ class Translator:
             )
             self._actual_device = "gpu"
             self._gpu_layers = gpu_layers
-            self._status_message = "翻译引擎就绪 (GPU 加速)"
+            self._status_message = f"翻译引擎就绪 (GPU / {self._gpu_backend.upper()})"
             logger.info("模型成功加载至 GPU")
         except Exception as gpu_err:
             logger.warning("显卡 (GPU) 加载失败 (%s)，安全降级至纯 CPU 模式...", gpu_err)
@@ -728,15 +768,16 @@ class Translator:
         max_tokens 不再写死：短文本沿用接近 384 的默认，长文分块可获得更大
         输出空间，同时不会超过 n_ctx 导致上下文溢出。
         """
-        prompt = build_translation_prompt(target_code, source_text, self._reference(source_text, target_code))
-        prompt_tokens = estimate_tokens(prompt)
+        reference = self._reference(source_text, target_code, record=True)
+        messages = build_translation_messages(target_code, source_text, reference)
+        prompt_tokens = sum(estimate_tokens(message["content"]) for message in messages)
         max_tokens = max(
             64,
             min(OUTPUT_MAX_TOKENS, MODEL_N_CTX - prompt_tokens - SAFETY_MARGIN_TOKENS),
         )
 
         response = self._model.create_chat_completion(
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             max_tokens=max_tokens,
             **GENERATION_CONFIG,
         )
@@ -747,11 +788,25 @@ class Translator:
         ):
             content = response["choices"][0]["message"]["content"]
             if content and content.strip():
+                if reference:
+                    if response["choices"][0].get("finish_reason") == "length":
+                        raise ValueError("译文被长度上限截断，本次结果未显示，请缩短文本后重试")
+                    return validate_terminology_translation(content, source_text)
                 return content.strip()
         return None
 
-    def _reference(self, text: str, target_code: str) -> str:
-        return self._glossary.reference(self._active_glossary, text, target_code, estimate_tokens)
+    def _reference(self, text: str, target_code: str, record=False) -> str:
+        plan = self._glossary.plan(self._active_glossary, text, target_code, estimate_tokens)
+        if record:
+            for group in plan["groups"]:
+                self._reference_used[group["source"].casefold()] = group
+            self._reference_omitted.update(source.casefold() for source in plan["omitted_sources"])
+        return plan["reference"]
+
+    def translate_with_info(self, text: str, target_lang: Optional[str] = None):
+        with self._inference_lock:
+            result, error = self._translate_locked(text, target_lang)
+            return result, error, copy.deepcopy(self._last_glossary_info)
 
     def translate(
         self,
@@ -776,6 +831,9 @@ class Translator:
         Returns:
             (翻译结果, 错误信息) — 成功时错误信息为 None
         """
+        self._reference_used = {}
+        self._reference_omitted = set()
+        self._last_glossary_info = {}
         if not self.ready:
             return None, self._status_message
 
@@ -827,6 +885,11 @@ class Translator:
                 result = self._complete(text, target_code)
 
             if result:
+                self._last_glossary_info = {
+                    "enabled": self._active_glossary.enabled,
+                    "groups": list(self._reference_used.values()),
+                    "omitted": len(self._reference_omitted.difference(self._reference_used)),
+                }
                 self._store_cached_translation(cache_key, result)
                 logger.info(f"翻译成功 [{direction}]{'（分块 %d）' % len(chunks) if split else ''}: {text[:30]}...")
                 return result, None
@@ -872,7 +935,15 @@ class Translator:
             for index, chunk in enumerate(chunks):
                 if split and index > 0:
                     yield "\n"
-                prompt = build_translation_prompt(target_code, chunk, self._reference(chunk, target_code))
+                if self._reference(chunk, target_code):
+                    # Validate the complete term-guided result before emitting any text. The
+                    # normal no-glossary path retains token-by-token streaming.
+                    result = self._complete(chunk, target_code)
+                    if result is None:
+                        raise ValueError("模型返回空译文")
+                    yield result
+                    continue
+                prompt = build_translation_prompt(target_code, chunk)
                 prompt_tokens = estimate_tokens(prompt)
                 max_tokens = max(
                     64,
@@ -918,16 +989,19 @@ class Translator:
                 return None
 
             self._translation_cache.move_to_end(cache_key)
+            self._last_glossary_info = copy.deepcopy(self._translation_info_cache.get(cache_key, {}))
             return cached_result
 
     def _store_cached_translation(self, cache_key, result: str):
         """缓存成功的翻译结果，避免重复文本反复推理。"""
         with self._cache_lock:
             self._translation_cache[cache_key] = result
+            self._translation_info_cache[cache_key] = copy.deepcopy(self._last_glossary_info)
             self._translation_cache.move_to_end(cache_key)
 
             while len(self._translation_cache) > CACHE_MAX_ENTRIES:
-                self._translation_cache.popitem(last=False)
+                evicted, _ = self._translation_cache.popitem(last=False)
+                self._translation_info_cache.pop(evicted, None)
 
     def translate_async(self, text: str, callback):
         """

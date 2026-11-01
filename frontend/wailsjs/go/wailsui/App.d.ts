@@ -6,6 +6,8 @@ import {wailsui} from '../models';
 
 export function DownloadDefaultModel():Promise<void>;
 
+export function FinishGlossaryClose():Promise<void>;
+
 export function GetGlossary():Promise<config.Glossary>;
 
 export function Hide():Promise<void>;
@@ -16,11 +18,13 @@ export function OnConfigSaved():Promise<void>;
 
 export function OnHidden():Promise<void>;
 
+export function OpenGlossary():Promise<void>;
+
 export function Quit():Promise<void>;
 
 export function SaveConfig(arg1:config.Config):Promise<void>;
 
-export function SaveGlossary(arg1:config.Glossary):Promise<void>;
+export function SaveGlossary(arg1:config.Glossary):Promise<config.Glossary>;
 
 export function SelectModel():Promise<string>;
 

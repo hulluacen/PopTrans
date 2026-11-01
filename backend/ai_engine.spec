@@ -45,6 +45,20 @@ a = Analysis(
     noarchive=False,
     optimize=1,
 )
+
+# Dependency scanning also places llama.cpp DLLs at the bundle root. Keep
+# the identical copy beside llama.dll, where its loader resolves dependencies.
+# CUDA libraries are large, so duplicate copies substantially slow extraction.
+llama_sources = {
+    str(Path(source).resolve()).casefold()
+    for target, source, kind in a.binaries
+    if target.replace("\\", "/").startswith("llama_cpp/lib/")
+}
+a.binaries = [
+    entry for entry in a.binaries
+    if "/" in entry[0].replace("\\", "/")
+    or str(Path(entry[1]).resolve()).casefold() not in llama_sources
+]
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -54,6 +68,7 @@ exe = EXE(
     a.datas,
     [],
     name="ai_engine",
+    version=str(ROOT / "backend" / "version_info.txt"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

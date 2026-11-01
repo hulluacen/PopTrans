@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"translate-plugin/internal/backend"
 )
 
 const (
@@ -42,10 +43,11 @@ type Status struct {
 
 // ResultPayload is pushed by the host to update the result window.
 type ResultPayload struct {
-	Source  string `json:"source"`
-	Result  string `json:"result"`
-	Error   string `json:"error"`
-	Loading bool   `json:"loading"`
+	GlossaryInfo *backend.GlossaryInfo `json:"glossary_info,omitempty"`
+	Source       string                `json:"source"`
+	Result       string                `json:"result"`
+	Error        string                `json:"error"`
+	Loading      bool                  `json:"loading"`
 }
 
 // ConfigSavedPayload is sent from UI to host after settings are saved.

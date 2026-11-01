@@ -27,6 +27,7 @@ type Health struct {
 	TranslatorReady  bool           `json:"translator_ready"`
 	ModelRequired    bool           `json:"model_required"`
 	Busy             bool           `json:"busy"`
+	GlossaryEnabled  bool           `json:"glossary_enabled"`
 	TranslatorStatus string         `json:"translator_status"`
 	OCRLoaded        bool           `json:"ocr_loaded"`
 	DeviceInfo       map[string]any `json:"device_info,omitempty"`
@@ -42,8 +43,24 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+type GlossaryCandidate struct {
+	Target  string `json:"target"`
+	Context string `json:"context"`
+	Library string `json:"library,omitempty"`
+}
+type GlossaryGroup struct {
+	Source     string              `json:"source"`
+	Candidates []GlossaryCandidate `json:"candidates"`
+}
+type GlossaryInfo struct {
+	Enabled bool            `json:"enabled"`
+	Groups  []GlossaryGroup `json:"groups"`
+	Omitted int             `json:"omitted"`
+}
+
 type chatResponse struct {
-	Choices []struct {
+	GlossaryInfo GlossaryInfo `json:"glossary_info"`
+	Choices      []struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
@@ -115,6 +132,11 @@ func (c *Client) Health(ctx context.Context) (Health, error) {
 }
 
 func (c *Client) Translate(ctx context.Context, text string) (string, error) {
+	result, _, err := c.TranslateWithInfo(ctx, text)
+	return result, err
+}
+
+func (c *Client) TranslateWithInfo(ctx context.Context, text string) (string, GlossaryInfo, error) {
 	startedAt := time.Now()
 	log.Printf("backend translate request start: chars=%d preview=%q", len(text), previewText(text, 120))
 	payload := chatRequest{
@@ -128,43 +150,43 @@ func (c *Client) Translate(ctx context.Context, text string) (string, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("backend translate marshal failed: %v", err)
-		return "", err
+		return "", GlossaryInfo{}, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		log.Printf("backend translate request build failed: %v", err)
-		return "", err
+		return "", GlossaryInfo{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		log.Printf("backend translate request failed after %s: %v", time.Since(startedAt), err)
-		return "", err
+		return "", GlossaryInfo{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("backend translate non-200 after %s: status=%s body=%s", time.Since(startedAt), resp.Status, string(body))
-		return "", fmt.Errorf("translate status: %s body: %s", resp.Status, string(body))
+		return "", GlossaryInfo{}, fmt.Errorf("translate status: %s body: %s", resp.Status, string(body))
 	}
 
 	var decoded chatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
 		log.Printf("backend translate decode failed after %s: %v", time.Since(startedAt), err)
-		return "", err
+		return "", GlossaryInfo{}, err
 	}
 
 	if len(decoded.Choices) == 0 {
 		log.Printf("backend translate empty choices after %s", time.Since(startedAt))
-		return "", errors.New("translate response missing choices")
+		return "", GlossaryInfo{}, errors.New("translate response missing choices")
 	}
 
 	result := strings.TrimSpace(decoded.Choices[0].Message.Content)
 	log.Printf("backend translate success after %s: result_chars=%d preview=%q", time.Since(startedAt), len(result), previewText(result, 120))
-	return result, nil
+	return result, decoded.GlossaryInfo, nil
 }
 
 func (c *Client) OCRImage(ctx context.Context, pngBytes []byte) (string, error) {

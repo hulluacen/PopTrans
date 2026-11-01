@@ -1,0 +1,35 @@
+.glossary-manager { display:grid; grid-template-rows:auto minmax(0,1fr); width:100%;height:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);font-size:13px; }
+.gm-body { min-height:0;display:grid;grid-template-columns:200px minmax(0,1fr); }
+.gm-sidebar { min-height:0;overflow:auto;border-right:1px solid var(--border);padding:14px 10px;background:var(--surface-raised); }
+.gm-library-heading { display:flex;align-items:center;justify-content:space-between;padding:0 4px 12px; }
+.gm-library-row { display:flex;gap:8px;align-items:center;border:1px solid transparent;border-radius:8px;padding:5px 7px;margin-bottom:6px; }
+.gm-library-selected { border-color:var(--accent);background:var(--accent-soft); }
+.gm-library-row input { accent-color:var(--accent);flex-shrink:0; }
+.glossary-manager .gm-library-row button { border:0;background:transparent;text-align:left;padding:4px 0;min-width:0;flex:1; }
+.gm-library-row button span { display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.gm-library-row small { display:block;color:var(--muted);font-size:11px;margin-top:5px; }
+.gm-library-help { color:var(--muted);font-size:11px;line-height:1.7;padding:4px; }
+.gm-editor { display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto auto;min-width:0;min-height:0; }
+.gm-library-title { display:flex;align-items:center;gap:8px;padding:14px 24px 0;min-width:0; }
+.gm-library-title strong { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.gm-dialog input { margin-top:10px;width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-raised);color:var(--text); }
+@media(max-width:900px) { .gm-body {grid-template-columns:160px minmax(0,1fr)} .gm-toolbar {flex-wrap:wrap} .gm-footer {flex-wrap:wrap} .gm-footer>div {flex-basis:100%} .gm-library-title {padding:12px 14px 0} }
+.gm-header { --wails-draggable:drag;display:flex;align-items:center;justify-content:space-between;padding:17px 24px;border-bottom:1px solid var(--border);background:var(--surface-raised); }
+.gm-header h1 { margin:0;font-size:19px;font-weight:650; }.gm-header p { margin:5px 0 0;color:var(--muted);font-size:12px; }
+.glossary-manager button,.glossary-manager input,.glossary-manager select,.glossary-manager textarea { --wails-draggable:no-drag;font:inherit; }
+.glossary-manager button { border:1px solid var(--border);border-radius:7px;padding:7px 12px;background:var(--surface-raised);color:var(--text);cursor:pointer;white-space:nowrap; }
+.glossary-manager button:hover:not(:disabled) { border-color:var(--accent); }.glossary-manager button:disabled { opacity:.4;cursor:default; }
+.glossary-manager .gm-primary { background:var(--accent);border-color:var(--accent);color:white; }.glossary-manager .gm-icon { font-size:24px;line-height:24px;border:0;padding:4px 10px; }
+.gm-toolbar { display:flex;gap:12px;align-items:center;padding:16px 24px 10px; }.gm-toolbar input[type=search] { flex:1;min-width:100px; }
+.gm-toolbar input[type=search],.gm-toolbar select { padding:9px 12px;border:1px solid var(--border);border-radius:7px;background:var(--surface-raised);color:var(--text); }
+.gm-enable { display:flex;gap:7px;align-items:center;white-space:nowrap; }.gm-enable input { accent-color:var(--accent); }
+.gm-actions { display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:0 24px 14px; }.gm-spacer { flex:1; }
+.gm-table-wrap { min-height:0;overflow:auto;margin:0 24px;border:1px solid var(--border);border-radius:9px;background:var(--surface-raised); }
+.gm-table { table-layout:fixed;width:100%;border-collapse:separate;border-spacing:0; }.gm-select-col { width:35px; }.gm-number-col { width:45px; }.gm-context-col { width:40%; }
+.gm-table th { position:sticky;top:0;z-index:1;background:var(--surface);text-align:left;color:var(--muted);font-weight:500;padding:10px 9px;border-bottom:1px solid var(--border); }
+.gm-table td { padding:0;border-bottom:1px solid var(--border);border-right:1px solid var(--border);height:42px; }.gm-table td:first-child { text-align:center; }.gm-table tr:last-child td { border-bottom:0; }
+.gm-table input[data-row] { width:100%;height:41px;min-width:0;outline:0;padding:9px;border:0;background:transparent;color:var(--text);border-radius:0; }.gm-table input[data-row]:focus { background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent); }
+.gm-table .gm-row-number { color:var(--muted);font-size:11px;text-align:center; }.gm-blank { opacity:.75; }.gm-inactive input[data-row] { color:var(--muted);text-decoration:line-through; }.glossary-manager .gm-restore { font-size:9px;padding:1px;border:0; }
+.gm-hint { padding:10px 24px;color:var(--muted);font-size:11px;line-height:1.6; }.gm-footer { display:flex;gap:10px;align-items:center;border-top:1px solid var(--border);padding:12px 24px; }.gm-footer>div { flex:1;min-width:0; }.gm-footer span { display:block;line-height:1.8; }#gmCount { color:var(--muted);font-size:11px; }#gmStatus { font-size:12px; }.gm-error { color:#e77878!important; }
+.gm-modal[hidden] { display:none; }.gm-modal { position:fixed;inset:0;z-index:10;background:#0008;display:grid;place-items:center;padding:24px; }.gm-dialog { max-width:760px;width:100%;max-height:90vh;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:24px;box-shadow:0 20px 70px #0005; }.gm-dialog h2 { margin:0 0 15px;font-size:18px; }.gm-dialog p { line-height:1.8;color:var(--muted); }.gm-dialog textarea { width:100%;resize:vertical;background:var(--surface-raised);border:1px solid var(--border);color:var(--text);padding:12px;border-radius:6px; }.gm-dialog-actions { display:flex;justify-content:flex-end;gap:10px;margin-top:20px; }.gm-preview { overflow:auto;max-height:40vh; }.gm-preview table { border-collapse:collapse;width:100%; }.gm-preview th,.gm-preview td { padding:8px;border:1px solid var(--border);text-align:left;word-break:break-word; }
+@media(max-width:720px) { .gm-header { padding:12px 14px; }.gm-toolbar { padding:12px 14px;gap:8px; }.gm-actions { padding:0 14px 12px; }.gm-table-wrap { margin:0 14px; }.gm-hint { padding:8px 14px; }.gm-footer { padding:10px 14px; }.gm-table { min-width:580px; }.gm-enable { font-size:11px; } }

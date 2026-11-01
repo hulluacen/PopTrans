@@ -1,6 +1,7 @@
 package wailsui
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,15 @@ import (
 	"translate-plugin/internal/config"
 	"translate-plugin/internal/uidaemon"
 )
+
+func TestGlossaryWindowShutdownDoesNotStopTranslationEngine(t *testing.T) {
+	app := NewApp(t.TempDir(), []string{"translate-ui.exe", "--glossary"})
+	if !app.glossaryMode || app.mode != "glossary" {
+		t.Fatal("not in glossary mode")
+	}
+	app.supervisor = nil
+	app.Shutdown(context.Background())
+}
 
 func TestDaemonShowResultUpdatesState(t *testing.T) {
 	app := NewApp(t.TempDir(), []string{"translate-ui.exe", "--daemon"})

@@ -75,6 +75,7 @@ def health_check():
         "translator_ready": translator_engine.ready,
         "model_required": translator_engine.model_required,
         "busy": translator_engine._inference_lock.locked(),
+        "glossary_enabled": translator_engine._glossary.snapshot().enabled,
         "translator_status": translator_engine.status,
         "device_info": translator_engine.device_info,
         "ocr_loaded": ocr_engine.is_loaded(),
@@ -195,11 +196,12 @@ async def chat_completions(req: ChatCompletionRequest):
             raise HTTPException(status_code=501, detail="Streaming not implemented in translator")
     else:
         # 普通翻译
-        result, error = await run_in_threadpool(translator_engine.translate, user_msg, req.target_lang)
+        result, error, glossary_info = await run_in_threadpool(translator_engine.translate_with_info, user_msg, req.target_lang)
         if error:
             raise HTTPException(status_code=500, detail=error)
             
         return {
+            "glossary_info": glossary_info,
             "choices": [
                 {
                     "message": {

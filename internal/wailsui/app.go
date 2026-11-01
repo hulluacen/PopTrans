@@ -34,18 +34,20 @@ type App struct {
 	notify        *uidaemon.NotifyClient
 	server        *uidaemon.Server
 
-	mu             sync.Mutex
-	mode           string
-	visible        bool
-	settingsOpen   bool
-	result         ResultView
-	ready          bool
-	startupLoading bool
-	startupStatus  string
-	startupError   string
-	startupStarted time.Time
-	idleTimer      *time.Timer
-	idleTimeout    time.Duration
+	mu              sync.Mutex
+	mode            string
+	visible         bool
+	settingsOpen    bool
+	result          ResultView
+	ready           bool
+	startupLoading  bool
+	startupStatus   string
+	startupError    string
+	startupStarted  time.Time
+	glossaryMode    bool
+	glossaryClosing bool
+	idleTimer       *time.Timer
+	idleTimeout     time.Duration
 
 	clickOutsideMu     sync.Mutex
 	clickOutsideCancel context.CancelFunc
@@ -64,15 +66,17 @@ type UIState struct {
 }
 
 type TranslateResult struct {
-	Source string `json:"source"`
-	Result string `json:"result"`
+	GlossaryInfo backend.GlossaryInfo `json:"glossary_info"`
+	Source       string               `json:"source"`
+	Result       string               `json:"result"`
 }
 
 type ResultView struct {
-	Source  string `json:"source"`
-	Result  string `json:"result"`
-	Error   string `json:"error"`
-	Loading bool   `json:"loading"`
+	GlossaryInfo *backend.GlossaryInfo `json:"glossary_info,omitempty"`
+	Source       string                `json:"source"`
+	Result       string                `json:"result"`
+	Error        string                `json:"error"`
+	Loading      bool                  `json:"loading"`
 }
 
 func NewApp(baseDir string, args []string) *App {
@@ -114,6 +118,10 @@ func NewApp(baseDir string, args []string) *App {
 			app.mode = "translate"
 			app.visible = true
 			app.settingsOpen = true
+		case "--glossary":
+			app.mode = "glossary"
+			app.glossaryMode = true
+			app.visible = true
 		case "--result":
 			// Legacy one-shot result mode is no longer used by the host.
 			// Keep parsing so old shortcuts do not crash.
@@ -133,6 +141,13 @@ func NewApp(baseDir string, args []string) *App {
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	if a.glossaryMode {
+		a.mu.Lock()
+		a.ready = true
+		a.mu.Unlock()
+		go a.watchGlossaryWake(ctx)
+		return
+	}
 
 	if a.daemonMode {
 		a.server = uidaemon.NewServer(a.baseDir, a)
@@ -298,7 +313,7 @@ func (a *App) Shutdown(ctx context.Context) {
 	if a.server != nil {
 		a.server.Stop()
 	}
-	if !a.daemonMode {
+	if !a.daemonMode && !a.glossaryMode {
 		a.supervisor.Stop()
 	}
 }
@@ -349,8 +364,11 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	return nil
 }
 
-func (a *App) SaveGlossary(glossary config.Glossary) error {
-	return config.SaveGlossary(a.baseDir, glossary)
+func (a *App) SaveGlossary(glossary config.Glossary) (config.Glossary, error) {
+	if err := config.SaveGlossary(a.baseDir, glossary); err != nil {
+		return config.Glossary{}, err
+	}
+	return config.LoadGlossary(a.baseDir)
 }
 
 func (a *App) GetGlossary() (config.Glossary, error) {
@@ -423,14 +441,14 @@ func (a *App) Translate(text string) (TranslateResult, error) {
 		return TranslateResult{}, err
 	}
 
-	result, err := a.client.Translate(ctx, text)
+	result, info, err := a.client.TranslateWithInfo(ctx, text)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return TranslateResult{}, errors.New("翻译等待超时，可尝试缩短文本或使用较小的模型；这不代表服务已崩溃")
 		}
 		return TranslateResult{}, err
 	}
-	return TranslateResult{Source: text, Result: strings.TrimSpace(result)}, nil
+	return TranslateResult{Source: text, Result: strings.TrimSpace(result), GlossaryInfo: info}, nil
 }
 
 // HideWindow is called by the frontend close button in daemon mode.
@@ -602,10 +620,11 @@ func (a *App) ShowResult(payload uidaemon.ResultPayload) error {
 	// Result can temporarily replace settings view; keep settingsOpen sticky so
 	// host continues suspending hotkeys until settings are explicitly closed.
 	a.result = ResultView{
-		Source:  payload.Source,
-		Result:  payload.Result,
-		Error:   payload.Error,
-		Loading: payload.Loading,
+		GlossaryInfo: payload.GlossaryInfo,
+		Source:       payload.Source,
+		Result:       payload.Result,
+		Error:        payload.Error,
+		Loading:      payload.Loading,
 	}
 	a.cancelIdleExitLocked()
 	a.mu.Unlock()

@@ -18,9 +18,9 @@ class InferenceResponsivenessTests(unittest.IsolatedAsyncioTestCase):
             with translator_engine._inference_lock:
                 started.set()
                 finish.wait(1)
-                return "translated", None
+                return "translated", None, {}
 
-        with patch.object(translator_engine, "ready", True), patch.object(translator_engine, "translate", slow_translation):
+        with patch.object(translator_engine, "ready", True), patch.object(translator_engine, "translate_with_info", slow_translation):
             task = asyncio.create_task(chat_completions(ChatCompletionRequest(messages=[ChatMessage(role="user", content="test")])))
             try:
                 for _ in range(100):
